@@ -1,0 +1,8 @@
+numpy
+torch
+torchvision
+pillow
+matplotlib
+tqdm
+ultralytics
+wandb
