@@ -1,0 +1,50 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore Virtual Environments
+venv/
+env/
+*.env
+
+# Ignore PyCharm IDE files
+.idea/
+*.iml
+
+# Ignore logs and database files
+logs/
+*.log
+*.sqlite3
+*.db
+
+# Ignore compiled code
+build/
+dist/
+*.egg-info/
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore coverage reports
+htmlcov/
+*.cover
+*.coverage
+.coverage.*
+
+# Ignore testing files
+.tox/
+.nox/
+pytest_cache/
+
+# Ignore environment variables and secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.test
