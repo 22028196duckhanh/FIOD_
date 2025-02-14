@@ -1,7 +1,10 @@
+import os
+
 import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
 from torch import optim
+from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 import wandb
 from tqdm import tqdm
@@ -12,6 +15,17 @@ from dataset.RealFogDataset import RealFogDataset
 from models.feature_extractor import FeatureExtractor
 from models.fogpassfilter import FogPassFilter_conv1, FogPassFilter_res1, FogPassFilterLoss
 from models.temp_model import CNNModel
+
+from yolov9_main.models.yolo import Model
+from yolov9_main.train import parse_opt
+from yolov9_main.utils.dataloaders import create_dataloader
+from yolov9_main.utils.general import (LOGGER, TQDM_BAR_FORMAT, check_amp, check_dataset, check_file, check_img_size,
+                                       check_suffix, check_yaml, colorstr, get_latest_run, increment_path, init_seeds,
+                                       intersect_dicts, labels_to_class_weights, labels_to_image_weights, methods,
+                                       one_cycle, one_flat_cycle, print_args, print_mutation, strip_optimizer,
+                                       yaml_save, yaml_load)
+from yolov9_main.utils.loss import ComputeLoss
+from yolov9_main.utils.torch_utils import smart_optimizer, ModelEMA
 
 
 def gram_matrix(feature_map):
@@ -133,8 +147,38 @@ def main():
     kl_loss = torch.nn.KLDivLoss(reduction='batchmean')
     m = nn.Softmax(dim=1)
     log_m = nn.LogSoftmax(dim=1)
-
     model = CNNModel()
+
+################# YOLOv9
+
+    # RANK = int(os.getenv('RANK', -1))
+    # hyp = yaml_load('yolov9_main/data/hyps/hyp.scratch-high.yaml')
+    # opt = parse_opt()
+    # nc = 2
+    # names = {0: 'person', 2: 'car'}
+    #
+    # model = Model(cfg = 'yolov9_main/models/detect/yolov9-s.yaml')
+    # amp = check_amp(model)
+    # scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    # optimizer = smart_optimizer(model, opt.optimizer, hyp['lr0'], hyp['momentum'], hyp['weight_decay'])
+    #
+    # if opt.cos_lr:
+    #     lf = one_cycle(1, hyp['lrf'], opt.epochs)  # cosine 1->hyp['lrf']
+    # elif opt.flat_cos_lr:
+    #     lf = one_flat_cycle(1, hyp['lrf'], opt.epochs)  # flat cosine 1->hyp['lrf']
+    # elif opt.fixed_lr:
+    #     lf = lambda x: 1.0
+    # else:
+    #     lf = lambda x: (1 - x / opt.epochs) * (1.0 - hyp['lrf']) + hyp['lrf']  # linear
+    #
+    # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+    #
+    #
+    # ema = ModelEMA(model) if RANK in {-1, 0} else None
+    #
+    # compute_loss = ComputeLoss(model)
+
+#################
     criterion = nn.MSELoss()
     optimization = optim.SGD(model.parameters(), lr=0.000001, momentum=0.9)
     scheduler = optim.lr_scheduler.StepLR(optimization, step_size=30, gamma=0.1)
@@ -281,6 +325,145 @@ def main():
             FogPassFilter2_optimizer.step()
 
             # Train model
+            ####################
+            model.train()
+#Uncomment từ đây
+            # # Update image weights (optional, single-GPU only)
+            # # if opt.image_weights:
+            # #     cw = model.class_weights.cpu().numpy() * (1 - maps) ** 2 / nc  # class weights
+            # #     iw = labels_to_image_weights(dataset.labels, nc=nc, class_weights=cw)  # image weights
+            # #     dataset.indices = random.choices(range(dataset.n), weights=iw, k=dataset.n)  # rand weighted idx
+            # # if epoch == (epochs - opt.close_mosaic):
+            # #     LOGGER.info("Closing dataloader mosaic")
+            # #     dataset.mosaic = False
+            #
+            # # Update mosaic border (optional)
+            # # b = int(random.uniform(0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
+            # # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
+            #
+            # mloss = torch.zeros(3, device=device)  # mean losses
+            # optimizer.zero_grad()
+            # for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+            #     callbacks.run('on_train_batch_start')
+            #     ni = i + nb * epoch  # number integrated batches (since train start)
+            #     imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
+            #
+            #     # Warmup
+            #     # if ni <= nw:
+            #     #     xi = [0, nw]  # x interp
+            #     #     # compute_loss.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
+            #     #     accumulate = max(1, np.interp(ni, xi, [1, nbs / batch_size]).round())
+            #     #     for j, x in enumerate(optimizer.param_groups):
+            #     #         # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
+            #     #         x['lr'] = np.interp(ni, xi,
+            #     #                             [hyp['warmup_bias_lr'] if j == 0 else 0.0, x['initial_lr'] * lf(epoch)])
+            #     #         if 'momentum' in x:
+            #     #             x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
+            #     #
+            #     # # Multi-scale
+            #     # if opt.multi_scale:
+            #     #     sz = random.randrange(imgsz * 0.5, imgsz * 1.5 + gs) // gs * gs  # size
+            #     #     sf = sz / max(imgs.shape[2:])  # scale factor
+            #     #     if sf != 1:
+            #     #         ns = [math.ceil(x * sf / gs) * gs for x in
+            #     #               imgs.shape[2:]]  # new shape (stretched to gs-multiple)
+            #     #         imgs = nn.functional.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+            #
+            #     # Forward
+            #     with torch.cuda.amp.autocast(amp):
+            #         pred = model(imgs)  # forward
+            #         loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+            #         if RANK != -1:
+            #             loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
+            #         if opt.quad:
+            #             loss *= 4.
+            #
+            #     # Backward
+            #     scaler.scale(loss).backward()
+            #
+            #     # Optimize - https://pytorch.org/docs/master/notes/amp_examples.html
+            #     if ni - last_opt_step >= accumulate:
+            #         scaler.unscale_(optimizer)  # unscale gradients
+            #         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
+            #         scaler.step(optimizer)  # optimizer.step
+            #         scaler.update()
+            #         optimizer.zero_grad()
+            #         if ema:
+            #             ema.update(model)
+            #         last_opt_step = ni
+            #
+            #     # Log
+            #     if RANK in {-1, 0}:
+            #         mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
+            #         mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'  # (GB)
+            #         pbar.set_description(('%11s' * 2 + '%11.4g' * 5) %
+            #                              (f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
+            #         callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))
+            #         if callbacks.stop_training:
+            #             return
+            #     # end batch ------------------------------------------------------------------------------------------------
+            #
+            # # Scheduler
+            # lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
+            # scheduler.step()
+            #
+            # if RANK in {-1, 0}:
+            #     # mAP
+            #     callbacks.run('on_train_epoch_end', epoch=epoch)
+            #     ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
+            #     final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
+            #     if not noval or final_epoch:  # Calculate mAP
+            #         results, maps, _ = validate.run(data_dict,
+            #                                         batch_size=batch_size // WORLD_SIZE * 2,
+            #                                         imgsz=imgsz,
+            #                                         half=amp,
+            #                                         model=ema.ema,
+            #                                         single_cls=single_cls,
+            #                                         dataloader=val_loader,
+            #                                         save_dir=save_dir,
+            #                                         plots=False,
+            #                                         callbacks=callbacks,
+            #                                         compute_loss=compute_loss)
+            #
+            #     # Update best mAP
+            #     fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            #     stop = stopper(epoch=epoch, fitness=fi)  # early stop check
+            #     if fi > best_fitness:
+            #         best_fitness = fi
+            #     log_vals = list(mloss) + list(results) + lr
+            #     callbacks.run('on_fit_epoch_end', log_vals, epoch, best_fitness, fi)
+            #
+            #     # Save model
+            #     if (not nosave) or (final_epoch and not evolve):  # if save
+            #         ckpt = {
+            #             'epoch': epoch,
+            #             'best_fitness': best_fitness,
+            #             'model': deepcopy(de_parallel(model)).half(),
+            #             'ema': deepcopy(ema.ema).half(),
+            #             'updates': ema.updates,
+            #             'optimizer': optimizer.state_dict(),
+            #             'opt': vars(opt),
+            #             'git': GIT_INFO,  # {remote, branch, commit} if a git repo
+            #             'date': datetime.now().isoformat()}
+            #
+            #         # Save last, best and delete
+            #         torch.save(ckpt, last)
+            #         if best_fitness == fi:
+            #             torch.save(ckpt, best)
+            #         if opt.save_period > 0 and epoch % opt.save_period == 0:
+            #             torch.save(ckpt, w / f'epoch{epoch}.pt')
+            #         del ckpt
+            #         callbacks.run('on_model_save', last, epoch, final_epoch, best_fitness, fi)
+            #
+            # # EarlyStopping
+            # if RANK != -1:  # if DDP training
+            #     broadcast_list = [stop if RANK == 0 else None]
+            #     dist.broadcast_object_list(broadcast_list, 0)  # broadcast 'stop' to all ranks
+            #     if RANK != 0:
+            #         stop = broadcast_list[0]
+            # if stop:
+            #     break  # must break all DDP ranks
+            ####################
             # model.train()
             for param in model.parameters():
                 param.requires_grad = True
