@@ -231,7 +231,7 @@ class DWConvTranspose2d(nn.ConvTranspose2d):
 
 class DFL(nn.Module):
     # DFL module
-    def __init__(self, c1=17):
+    def __init__(self, c1=16):
         super().__init__()
         self.conv = nn.Conv2d(c1, 1, 1, bias=False).requires_grad_(False)
         self.conv.weight.data[:] = nn.Parameter(torch.arange(c1, dtype=torch.float).view(1, c1, 1, 1)) # / 120.0
@@ -239,9 +239,16 @@ class DFL(nn.Module):
         # self.bn = nn.BatchNorm2d(4)
 
     def forward(self, x):
-        b, c, a = x.shape  # batch, channels, anchors
-        return self.conv(x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)).view(b, 4, a)
-        # return self.conv(x.view(b, self.c1, 4, a).softmax(1)).view(b, 4, a)
+        if x.dim() == 2:
+            x = x.unsqueeze(-1)
+        b, c, a = x.shape
+        assert c == 4 * self.c1, f"Expected channels {4 * self.c1}, got {c}"
+        x = x.view(b, 4, self.c1, a).transpose(2, 1).softmax(1)
+        out = self.conv(x).view(b, 4, a)
+
+        if out.shape[-1] == 1:
+            out = out.squeeze(-1)
+        return out
 
 
 class BottleneckBase(nn.Module):

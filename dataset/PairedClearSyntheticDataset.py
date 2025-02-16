@@ -90,86 +90,57 @@ class PairedClearSyntheticDataset(data.Dataset):
 
         return src_image, trg_image, boxes, labels, name
 
-    def _apply_transform(self, src_image, trg_image, boxes, scale=(0.7, 1.3), crop_size=160):
+    def _apply_transform(self, src_image, trg_image, boxes, target_size=640):
         """
-        Áp dụng transform lên ảnh và bounding boxes.
+        Resize ảnh về kích thước (640, 640) và điều chỉnh bounding boxes.
         """
-        (W, H) = src_image.size[:2]
-        if isinstance(scale, tuple):
-            scale = random.random() * 0.6 + 0.7
+        # Lấy kích thước ảnh gốc
+        W, H = src_image.size[:2]
 
-        # Resize
-        new_W, new_H = int(W * scale), int(H * scale)
-        src_image = TF.resize(src_image, (new_H, new_W))
-        trg_image = TF.resize(trg_image, (new_H, new_W))
+        # Resize ảnh về (640, 640)
+        src_image = TF.resize(src_image, (target_size, target_size))
+        trg_image = TF.resize(trg_image, (target_size, target_size))
 
-        # Random crop
-        i, j, h, w = transforms.RandomCrop.get_params(src_image, output_size=(crop_size, crop_size))
-        src_image = TF.crop(src_image, i, j, h, w)
-        trg_image = TF.crop(trg_image, i, j, h, w)
+        # Điều chỉnh bounding boxes nếu có
+        if len(boxes.shape) > 1 and boxes.shape[0] > 0:
+            scale_x = target_size / W
+            scale_y = target_size / H
 
-        # Random horizontal flip
-        if random.random() > 0.5:
-            src_image = TF.hflip(src_image)
-            trg_image = TF.hflip(trg_image)
-
-        # Adjust bounding boxes only if boxes exist
-        if len(boxes.shape) > 1 and boxes.shape[0] > 0: # Check if boxes tensor has more than one dimension and contains boxes
-            boxes[:, 0] = (boxes[:, 0] * W - j) / w  # x_center
-            boxes[:, 1] = (boxes[:, 1] * H - i) / h  # y_center
-            boxes[:, 2] = boxes[:, 2] * W / w        # width
-            boxes[:, 3] = boxes[:, 3] * H / h        # height
+            boxes[:, 0] = boxes[:, 0] * scale_x  # x_center
+            boxes[:, 1] = boxes[:, 1] * scale_y  # y_center
+            boxes[:, 2] = boxes[:, 2] * scale_x  # width
+            boxes[:, 3] = boxes[:, 3] * scale_y  # height
 
         return src_image, trg_image, boxes
 
     def collate_fn(self, batch):
         """
-        Hàm này được sử dụng để gom các mẫu trong batch lại với nhau.
+        Gom nhóm batch và chuẩn hóa bounding boxes theo định dạng (batch_idx, label, x, y, w, h).
         """
-        src_images, trg_images, boxes, labels, names = zip(*batch)
+        src_images, trg_images, boxes_list, labels_list, names = zip(*batch)
+
+        # Stack ảnh thành batch
         src_images = torch.stack(src_images, 0)
         trg_images = torch.stack(trg_images, 0)
 
-        # Tìm max length trong batch
-        max_boxes = max(len(b) for b in boxes)
-        max_labels = max(len(l) for l in labels)
+        # Danh sách chứa boxes đã xử lý
+        all_boxes = []
 
-        # Pad và stack boxes
-        padded_boxes = []
-        padded_labels = []
+        # Duyệt từng ảnh trong batch để xử lý boxes
+        for batch_idx, (boxes, labels) in enumerate(zip(boxes_list, labels_list)):
+            if len(boxes) > 0:
+                # Tạo tensor batch index có cùng số lượng boxes
+                batch_indices = torch.full((len(boxes), 1), batch_idx, dtype=torch.float32)
+                labels = labels.unsqueeze(1)  # Chuyển labels thành shape (num_bb, 1)
 
-        for box, label in zip(boxes, labels):
-            # Nếu box rỗng, tạo tensor rỗng với shape phù hợp
-            if len(box) == 0:
-                padded_box = torch.zeros((max_boxes, 4), dtype=torch.float32)  # Giả sử bbox có 4 giá trị (x, y, w, h)
-            else:
-                pad_size = max_boxes - len(box)
-                if pad_size > 0:
-                    padded_box = torch.cat([box, torch.zeros((pad_size, box.size(1)), dtype=box.dtype)])
-                else:
-                    padded_box = box
-            padded_boxes.append(padded_box)
+                # Nối các thông tin lại thành (batch_idx, label, x, y, w, h)
+                new_boxes = torch.cat([batch_indices, labels, boxes], dim=1)
+                all_boxes.append(new_boxes)
 
-            # Nếu label rỗng, tạo tensor rỗng với shape phù hợp
-            if len(label) == 0:
-                padded_label = torch.full((max_labels,), -1, dtype=torch.long)
-            else:
-                pad_size = max_labels - len(label)
-                if pad_size > 0:
-                    padded_label = torch.cat([label, torch.full((pad_size,), -1, dtype=label.dtype)])
-                else:
-                    padded_label = label
-            padded_labels.append(padded_label)
-
-            # Stack tất cả
-        if padded_boxes:
-            boxes = torch.stack(padded_boxes, 0)
+        # Gộp tất cả bounding boxes lại
+        if all_boxes:
+            boxes = torch.cat(all_boxes, dim=0)  # (total_boxes, 6)
         else:
-            boxes = torch.empty((0, max_boxes, 4), dtype=torch.float32)  # Nếu không có box nào trong batch
+            boxes = torch.empty((0, 6), dtype=torch.float32)  # Nếu batch không có box nào
 
-        if padded_labels:
-            labels = torch.stack(padded_labels, 0)
-        else:
-            labels = torch.empty((0, max_labels), dtype=torch.long)  # Nếu không có label nào trong batch
-
-        return src_images, trg_images, boxes, labels, names
+        return src_images, trg_images, boxes, names

@@ -2,9 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from yolov9_main.models.common import DFL
+from yolov9_main.utils.general import yaml_load
 from yolov9_main.utils.metrics import bbox_iou
+from yolov9_main.utils.tal.anchor_generator import dist2bbox
 from yolov9_main.utils.torch_utils import de_parallel
 
+hyp = yaml_load('yolov9_main/data/hyps/hyp.scratch-high.yaml')
 
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
@@ -89,8 +93,13 @@ class ComputeLoss:
 
     # Compute losses
     def __init__(self, model, autobalance=False):
+        self.nl = 3
+        self.reg_max = 16
+        self.dfl = DFL(self.reg_max)
+        self.strides = torch.zeros(self.nl)  # self.nl là số detection layer
+
         device = next(model.parameters()).device  # get model device
-        h = model.hyp  # hyperparameters
+        h = hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
@@ -110,11 +119,18 @@ class ComputeLoss:
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
         self.nc = m.nc  # number of classes
         self.nl = m.nl  # number of layers
-        self.anchors = m.anchors
         self.device = device
+        self.anchors = [
+            torch.tensor([[10, 13], [16, 30], [33, 23]], device=self.device).float(),
+            torch.tensor([[30, 61], [62, 45], [59, 119]], device=self.device).float(),
+            torch.tensor([[116, 90], [156, 198], [373, 326]], device=self.device).float()
+        ]
 
     def __call__(self, p, targets):  # predictions, targets
+        print(len(p))
+        print(len(p[0]))
         bs = p[0].shape[0]  # batch size
+        print(f"batch size: {bs}")
         loss = torch.zeros(3, device=self.device)  # [box, obj, cls] losses
         tcls, tbox, indices = self.build_targets(p, targets)  # targets
 
@@ -126,18 +142,26 @@ class ComputeLoss:
             n_labels = b.shape[0]  # number of labels
             if n_labels:
                 # pxy, pwh, _, pcls = pi[b, a, gj, gi].tensor_split((2, 4, 5), dim=1)  # faster, requires torch 1.8.0
-                pxy, pwh, _, pcls = pi[b, :, gj, gi].split((2, 2, 1, self.nc), 1)  # target-subset of predictions
+                # pxy, pwh, _, pcls = pi[b, :, gj, gi].split((2, 2, 1, self.nc), 1)  # target-subset of predictions
+                #
+                # # Regression
+                # # pwh = (pwh.sigmoid() * 2) ** 2 * anchors[i]
+                # # pwh = (0.0 + (pwh - 1.09861).sigmoid() * 4) * anchors[i]
+                # # pwh = (0.33333 + (pwh - 1.09861).sigmoid() * 2.66667) * anchors[i]
+                # # pwh = (0.25 + (pwh - 1.38629).sigmoid() * 3.75) * anchors[i]
+                # # pwh = (0.20 + (pwh - 1.60944).sigmoid() * 4.8) * anchors[i]
+                # # pwh = (0.16667 + (pwh - 1.79175).sigmoid() * 5.83333) * anchors[i]
+                # pxy = pxy.sigmoid() * 1.6 - 0.3
+                # pwh = (0.2 + pwh.sigmoid() * 4.8) * self.anchors[i]
+                # pbox = torch.cat((pxy, pwh), 1)  # predicted box
+                # print(f"pbox.shape: {pbox.shape}")
+                print(f"tbox: {tbox[i].shape}")
+                box_pred, pcls = pi[b, :, gj, gi].split((self.reg_max * 4, self.nc), 1)
+                print(f"box_pred: {box_pred.shape}")
+                pbox = self.dfl(box_pred)
+                # anchors_tensor = torch.stack(self.anchors)
+                # pbox = dist2bbox(self.dfl(box_pred), anchors_tensor.unsqueeze(0), xywh=True, dim=1) * self.strides
 
-                # Regression
-                # pwh = (pwh.sigmoid() * 2) ** 2 * anchors[i]
-                # pwh = (0.0 + (pwh - 1.09861).sigmoid() * 4) * anchors[i]
-                # pwh = (0.33333 + (pwh - 1.09861).sigmoid() * 2.66667) * anchors[i]
-                # pwh = (0.25 + (pwh - 1.38629).sigmoid() * 3.75) * anchors[i]
-                # pwh = (0.20 + (pwh - 1.60944).sigmoid() * 4.8) * anchors[i]
-                # pwh = (0.16667 + (pwh - 1.79175).sigmoid() * 5.83333) * anchors[i]
-                pxy = pxy.sigmoid() * 1.6 - 0.3
-                pwh = (0.2 + pwh.sigmoid() * 4.8) * self.anchors[i]
-                pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 iou = bbox_iou(pbox, tbox[i], CIoU=True).squeeze()  # iou(prediction, target)
                 loss[0] += (1.0 - iou).mean()  # box loss
 
@@ -173,7 +197,6 @@ class ComputeLoss:
         nt = targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices = [], [], []
         gain = torch.ones(6, device=self.device)  # normalized to gridspace gain
-
         g = 0.3  # bias
         off = torch.tensor(
             [
@@ -194,10 +217,16 @@ class ComputeLoss:
             t = targets * gain  # shape(3,n,7)
             if nt:
                 # Matches
-                r = t[..., 4:6] / self.anchors[i]  # wh ratio
-                j = torch.max(r, 1 / r).max(1)[0] < self.hyp['anchor_t']  # compare
+                r = t[..., 4:6].unsqueeze(1) / self.anchors[i]  # wh ratio
+                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-                t = t[j]  # filter
+                # t = t[j]  # filter
+
+                t_rep = t.repeat_interleave(self.anchors[i].shape[0], dim=0)  # shape (n*3, 6)
+
+                j_flat = j.view(-1)
+
+                t = t_rep[j_flat]
 
                 # Offsets
                 gxy = t[:, 2:4]  # grid xy

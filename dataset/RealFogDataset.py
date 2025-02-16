@@ -58,28 +58,11 @@ class RealFogDataset(data.Dataset):
 
         return fog_image, name
 
-    def _apply_transform(self, fog_image, scale=(0.7, 1.3), crop_size=160):
-        (W, H) = fog_image.size[:2]
-        if isinstance(scale, tuple):
-            scale = random.random() * 0.6 + 0.7
-
-        # Calculate minimum scale needed to reach crop_size
-        scale_w = max(crop_size / W, scale)
-        scale_h = max(crop_size / H, scale)
-        final_scale = max(scale_w, scale_h)
-
-        # Resize
-        new_W, new_H = int(W * final_scale), int(H * final_scale)
-        fog_image = TF.resize(fog_image, (new_H, new_W))
-
-        # Random crop
-        i, j, h, w = transforms.RandomCrop.get_params(fog_image, output_size=(crop_size, crop_size))
-        fog_image = TF.crop(fog_image, i, j, crop_size, crop_size)
-
-        # Random horizontal flip
-        if random.random() > 0.5:
-            fog_image = TF.hflip(fog_image)
-
+    def _apply_transform(self, fog_image, target_size=640):
+        """
+        Resize ảnh về kích thước cố định 640x640.
+        """
+        fog_image = TF.resize(fog_image, (target_size, target_size))
         return fog_image
 
     def collate_fn(self, batch):
