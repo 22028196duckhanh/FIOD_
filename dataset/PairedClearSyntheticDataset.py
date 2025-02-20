@@ -12,7 +12,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image
 
 class PairedClearSyntheticDataset(data.Dataset):
-    def __init__(self, src_root, trg_root, set='train', max_iters=None, mean=(128, 128, 128)):
+    def __init__(self, src_root, trg_root, set='train', max_iters=None):
         """
         Args:
             src_root (str): Đường dẫn đến thư mục gốc của dataset foggy.
@@ -24,7 +24,6 @@ class PairedClearSyntheticDataset(data.Dataset):
         self.src_root = src_root
         self.trg_root = trg_root
         self.set = set
-        self.mean = mean
 
         # Đọc danh sách ảnh từ thư mục images
         self.src_image_dir = osp.join(src_root, set, 'images')
@@ -57,7 +56,6 @@ class PairedClearSyntheticDataset(data.Dataset):
         trg_image = Image.open(datafiles["trg_img"]).convert('RGB')
         label_path = datafiles["label"]
         name = datafiles["name"]
-
         # Đọc label (bounding boxes và class IDs)
         with open(label_path, 'r') as f:
             lines = f.readlines()
@@ -68,21 +66,26 @@ class PairedClearSyntheticDataset(data.Dataset):
             boxes.append([x_center, y_center, width, height])
             labels.append(int(class_id))
 
-        # Chuyển đổi sang tensor
+            # Chuyển đổi sang tensor
         boxes = torch.tensor(boxes, dtype=torch.float32)
         labels = torch.tensor(labels, dtype=torch.int64)
 
         # Áp dụng transform (nếu có)
         src_image, trg_image, boxes = self._apply_transform(src_image, trg_image, boxes)
+        # Chuẩn hóa ảnh: chia cho 255 để đưa về [0,1]
+        src_image = np.asarray(src_image, np.float32) / 255.0
+        trg_image = np.asarray(trg_image, np.float32) / 255.0
+        # Chuyển đổi từ RGB sang BGR
+        src_image = src_image[:, :, ::-1].copy()
+        trg_image = trg_image[:, :, ::-1].copy()
 
-        # Chuẩn hóa ảnh
-        src_image = np.asarray(src_image, np.float32)
-        trg_image = np.asarray(trg_image, np.float32)
-        src_image = src_image[:, :, ::-1].copy()  # RGB to BGR, create a copy here
-        src_image -= self.mean
+        # Định nghĩa mean với giá trị đã chia cho 255
+        mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
+        src_image -= mean
+        trg_image -= mean
+
+        # Chuyển đổi định dạng từ HWC sang CHW
         src_image = src_image.transpose((2, 0, 1))
-        trg_image = trg_image[:, :, ::-1].copy()  # RGB to BGR, create a copy here
-        trg_image -= self.mean
         trg_image = trg_image.transpose((2, 0, 1))
 
         src_image = torch.from_numpy(src_image)

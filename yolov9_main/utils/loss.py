@@ -127,15 +127,12 @@ class ComputeLoss:
         ]
 
     def __call__(self, p, targets):  # predictions, targets
-        print(len(p))
-        print(len(p[0]))
-        bs = p[0].shape[0]  # batch size
-        print(f"batch size: {bs}")
+        bs = len(p[0][0])  # batch size
         loss = torch.zeros(3, device=self.device)  # [box, obj, cls] losses
-        tcls, tbox, indices = self.build_targets(p, targets)  # targets
+        tcls, tbox, indices = self.build_targets(p[1], targets)  # targets
 
         # Losses
-        for i, pi in enumerate(p):  # layer index, layer predictions
+        for i, pi in enumerate(p[1]):  # layer index, layer predictions
             b, gj, gi = indices[i]  # image, anchor, gridy, gridx
             tobj = torch.zeros((pi.shape[0], pi.shape[2], pi.shape[3]), dtype=pi.dtype, device=self.device)  # tgt obj
 
@@ -155,9 +152,7 @@ class ComputeLoss:
                 # pwh = (0.2 + pwh.sigmoid() * 4.8) * self.anchors[i]
                 # pbox = torch.cat((pxy, pwh), 1)  # predicted box
                 # print(f"pbox.shape: {pbox.shape}")
-                print(f"tbox: {tbox[i].shape}")
                 box_pred, pcls = pi[b, :, gj, gi].split((self.reg_max * 4, self.nc), 1)
-                print(f"box_pred: {box_pred.shape}")
                 pbox = self.dfl(box_pred)
                 # anchors_tensor = torch.stack(self.anchors)
                 # pbox = dist2bbox(self.dfl(box_pred), anchors_tensor.unsqueeze(0), xywh=True, dim=1) * self.strides
@@ -236,20 +231,30 @@ class ComputeLoss:
                 j = torch.stack((torch.ones_like(j), j, k, l, m))
                 t = t.repeat((5, 1, 1))[j]
                 offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+
+                # Define
+                bc, gxy, gwh = t.chunk(3, 1)  # (image, class), grid xy, grid wh
+                b, c = bc.long().T  # image, class
+                gij = (gxy - offsets).long()
+                gi, gj = gij.T  # grid indices
+
+                # Append
+                indices.append(
+                    (b, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, grid_y, grid_x indices
+                tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
+                tcls.append(c)  # class
+            elif t.numel() == 0:
+                indices.append((torch.empty(0, dtype=torch.long, device=self.device),
+                                torch.empty(0, dtype=torch.long, device=self.device),
+                                torch.empty(0, dtype=torch.long, device=self.device)))
+                tbox.append(torch.empty((0, 4), device=self.device))
+                tcls.append(torch.empty((0,), dtype=torch.long, device=self.device))
+                continue
+
             else:
                 t = targets[0]
                 offsets = 0
 
-            # Define
-            bc, gxy, gwh = t.chunk(3, 1)  # (image, class), grid xy, grid wh
-            b, c = bc.long().T  # image, class
-            gij = (gxy - offsets).long()
-            gi, gj = gij.T  # grid indices
-
-            # Append
-            indices.append((b, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, grid_y, grid_x indices
-            tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
-            tcls.append(c)  # class
 
         return tcls, tbox, indices
 

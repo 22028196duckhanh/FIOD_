@@ -19,7 +19,6 @@ class FeatureExtractor:
     def _register_hooks(self, num_layers: int):
         count = 0
         for name, layer in self.model.model.named_children():
-            print(name)
             if count < num_layers:
                 self.hooks.append(layer.register_forward_hook(self._hook_fn(name)))
                 count += 1

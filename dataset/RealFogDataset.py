@@ -11,7 +11,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image
 
 class RealFogDataset(data.Dataset):
-    def __init__(self, fog_root, list_file, max_iters=None, mean=(128, 128, 128)):
+    def __init__(self, fog_root, list_file, max_iters=None):
         """
         Args:
             fog_root (str): Đường dẫn đến thư mục gốc của dataset Foggy_Driving.
@@ -20,7 +20,6 @@ class RealFogDataset(data.Dataset):
             mean (tuple): Giá trị mean để chuẩn hóa ảnh.
         """
         self.fog_root = fog_root
-        self.mean = mean
 
         # Đọc danh sách ảnh từ file
         with open(list_file, 'r') as f:
@@ -45,13 +44,15 @@ class RealFogDataset(data.Dataset):
         fog_image = Image.open(datafiles["fog_img"]).convert('RGB')
         name = datafiles["name"]
 
-        # Áp dụng transform (nếu có)
         fog_image = self._apply_transform(fog_image)
+        fog_image = np.asarray(fog_image, np.float32) / 255.0
 
-        # Chuẩn hóa ảnh
-        fog_image = np.asarray(fog_image, np.float32)
+
         fog_image = fog_image[:, :, ::-1].copy()  # RGB to BGR
-        fog_image -= self.mean
+
+        mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
+        fog_image -= mean
+
         fog_image = fog_image.transpose((2, 0, 1))
 
         fog_image = torch.from_numpy(fog_image)

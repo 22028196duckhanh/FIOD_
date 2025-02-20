@@ -4,12 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from yolov9_main.utils.general import xywh2xyxy
+from yolov9_main.utils.general import xywh2xyxy, yaml_load
 from yolov9_main.utils.metrics import bbox_iou
 from yolov9_main.utils.tal.anchor_generator import dist2bbox, make_anchors, bbox2dist
 from yolov9_main.utils.tal.assigner import TaskAlignedAssigner
 from yolov9_main.utils.torch_utils import de_parallel
 
+hyp = yaml_load('yolov9_main/data/hyps/hyp.scratch-high.yaml')
 
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
@@ -107,7 +108,7 @@ class ComputeLoss:
     # Compute losses
     def __init__(self, model, use_dfl=True):
         device = next(model.parameters()).device  # get model device
-        h = model.hyp  # hyperparameters
+        h = hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h["cls_pw"]], device=device), reduction='none')

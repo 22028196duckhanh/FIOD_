@@ -75,7 +75,6 @@ def process_batch(detections, labels, iouv):
 
 @smart_inference_mode()
 def run(
-        data,
         weights=None,  # model.pt path(s)
         batch_size=32,  # batch size
         imgsz=640,  # inference size (pixels)
@@ -111,64 +110,66 @@ def run(
         device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
         half &= device.type != 'cpu'  # half precision only supported on CUDA
         model.half() if half else model.float()
-    else:  # called directly
-        device = select_device(device, batch_size=batch_size)
-
-        # Directories
-        save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-        (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
-
-        # Load model
-        model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-        stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
-        imgsz = check_img_size(imgsz, s=stride)  # check image size
-        half = model.fp16  # FP16 supported on limited backends with CUDA
-        if engine:
-            batch_size = model.batch_size
-        else:
-            device = model.device
-            if not (pt or jit):
-                batch_size = 1  # export.py models default to batch-size 1
-                LOGGER.info(f'Forcing --batch-size 1 square inference (1,3,{imgsz},{imgsz}) for non-PyTorch models')
-
-        # Data
-        data = check_dataset(data)  # check
+    # else:  # called directly
+    #     device = select_device(device, batch_size=batch_size)
+    #
+    #     # Directories
+    #     save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    #     (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    #
+    #     # Load model
+    #     model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+    #     stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
+    #     imgsz = check_img_size(imgsz, s=stride)  # check image size
+    #     half = model.fp16  # FP16 supported on limited backends with CUDA
+    #     if engine:
+    #         batch_size = model.batch_size
+    #     else:
+    #         device = model.device
+    #         if not (pt or jit):
+    #             batch_size = 1  # export.py models default to batch-size 1
+    #             LOGGER.info(f'Forcing --batch-size 1 square inference (1,3,{imgsz},{imgsz}) for non-PyTorch models')
+    #
+    #     # Data
+    #     data = check_dataset(data)  # check
 
     # Configure
     model.eval()
     cuda = device.type != 'cpu'
     #is_coco = isinstance(data.get('val'), str) and data['val'].endswith(f'coco{os.sep}val2017.txt')  # COCO dataset
-    is_coco = isinstance(data.get('val'), str) and data['val'].endswith(f'val2017.txt')  # COCO dataset
-    nc = 1 if single_cls else int(data['nc'])  # number of classes
+    #is_coco = isinstance(data.get('val'), str) and data['val'].endswith(f'val2017.txt')  # COCO dataset
+    # nc = 1 if single_cls else int(data['nc'])  # number of classes
+    nc = 3
     iouv = torch.linspace(0.5, 0.95, 10, device=device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
 
     # Dataloader
-    if not training:
-        if pt and not single_cls:  # check --weights are trained on --data
-            ncm = model.model.nc
-            assert ncm == nc, f'{weights} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
-                              f'classes). Pass correct combination of --weights and --data that are trained together.'
-        model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
-        pad, rect = (0.0, False) if task == 'speed' else (0.5, pt)  # square inference for benchmarks
-        task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
-        dataloader = create_dataloader(data[task],
-                                       imgsz,
-                                       batch_size,
-                                       stride,
-                                       single_cls,
-                                       pad=pad,
-                                       rect=rect,
-                                       workers=workers,
-                                       min_items=opt.min_items,
-                                       prefix=colorstr(f'{task}: '))[0]
+    # if not training:
+    #     if pt and not single_cls:  # check --weights are trained on --data
+    #         ncm = model.model.nc
+    #         assert ncm == nc, f'{weights} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
+    #                           f'classes). Pass correct combination of --weights and --data that are trained together.'
+    #     model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
+    #     pad, rect = (0.0, False) if task == 'speed' else (0.5, pt)  # square inference for benchmarks
+    #     task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
+    #     dataloader = create_dataloader(data[task],
+    #                                    imgsz,
+    #                                    batch_size,
+    #                                    stride,
+    #                                    single_cls,
+    #                                    pad=pad,
+    #                                    rect=rect,
+    #                                    workers=workers,
+    #                                    min_items=opt.min_items,
+    #                                    prefix=colorstr(f'{task}: '))[0]
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = model.names if hasattr(model, 'names') else model.module.names  # get class names
     if isinstance(names, (list, tuple)):  # old format
         names = dict(enumerate(names))
-    class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
+    # class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
+    class_map = list(range(1000))
     s = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
     tp, fp, p, r, f1, mp, mr, map50, ap50, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dt = Profile(), Profile(), Profile()  # profiling times
@@ -189,10 +190,9 @@ def run(
         # Inference
         with dt[1]:
             preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
-
         # Loss
         if compute_loss:
-            loss += compute_loss(train_out, targets)[1]  # box, obj, cls
+            loss += compute_loss(train_out[1], targets)[1]  # box, obj, cls
 
         # NMS
         targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
@@ -282,30 +282,30 @@ def run(
         callbacks.run('on_val_end', nt, tp, fp, p, r, f1, ap, ap50, ap_class, confusion_matrix)
 
     # Save JSON
-    if save_json and len(jdict):
-        w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        anno_json = str(Path(data.get('path', '../coco')) / 'annotations/instances_val2017.json')  # annotations json
-        pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
-        LOGGER.info(f'\nEvaluating pycocotools mAP... saving {pred_json}...')
-        with open(pred_json, 'w') as f:
-            json.dump(jdict, f)
-
-        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            check_requirements('pycocotools')
-            from pycocotools.coco import COCO
-            from pycocotools.cocoeval import COCOeval
-
-            anno = COCO(anno_json)  # init annotations api
-            pred = anno.loadRes(pred_json)  # init predictions api
-            eval = COCOeval(anno, pred, 'bbox')
-            if is_coco:
-                eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.im_files]  # image IDs to evaluate
-            eval.evaluate()
-            eval.accumulate()
-            eval.summarize()
-            map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-        except Exception as e:
-            LOGGER.info(f'pycocotools unable to run: {e}')
+    # if save_json and len(jdict):
+    #     w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
+    #     anno_json = str(Path(data.get('path', '../coco')) / 'annotations/instances_val2017.json')  # annotations json
+    #     pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
+    #     LOGGER.info(f'\nEvaluating pycocotools mAP... saving {pred_json}...')
+    #     with open(pred_json, 'w') as f:
+    #         json.dump(jdict, f)
+    #
+    #     try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+    #         check_requirements('pycocotools')
+    #         from pycocotools.coco import COCO
+    #         from pycocotools.cocoeval import COCOeval
+    #
+    #         anno = COCO(anno_json)  # init annotations api
+    #         pred = anno.loadRes(pred_json)  # init predictions api
+    #         eval = COCOeval(anno, pred, 'bbox')
+    #         # if is_coco:
+    #         #     eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.im_files]  # image IDs to evaluate
+    #         eval.evaluate()
+    #         eval.accumulate()
+    #         eval.summarize()
+    #         map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+    #     except Exception as e:
+    #         LOGGER.info(f'pycocotools unable to run: {e}')
 
     # Return results
     model.float()  # for training

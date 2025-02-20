@@ -35,7 +35,7 @@ class FogPassFilter_res1(nn.Module):
         return x
 
 class FogPassFilterLoss(nn.Module):
-    def __init__(self, margin=0.5):
+    def __init__(self, margin=1):
         super().__init__()
         self.margin = margin
 
