@@ -70,9 +70,7 @@ class PairedClearSyntheticDataset(data.Dataset):
         boxes = torch.tensor(boxes, dtype=torch.float32)
         labels = torch.tensor(labels, dtype=torch.int64)
 
-        # Áp dụng transform (nếu có)
         src_image, trg_image, boxes = self._apply_transform(src_image, trg_image, boxes)
-        # Chuẩn hóa ảnh: chia cho 255 để đưa về [0,1]
         src_image = np.asarray(src_image, np.float32) / 255.0
         trg_image = np.asarray(trg_image, np.float32) / 255.0
         # Chuyển đổi từ RGB sang BGR
@@ -80,9 +78,9 @@ class PairedClearSyntheticDataset(data.Dataset):
         trg_image = trg_image[:, :, ::-1].copy()
 
         # Định nghĩa mean với giá trị đã chia cho 255
-        mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
-        src_image -= mean
-        trg_image -= mean
+        # mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
+        # src_image -= mean
+        # trg_image -= mean
 
         # Chuyển đổi định dạng từ HWC sang CHW
         src_image = src_image.transpose((2, 0, 1))
@@ -105,14 +103,14 @@ class PairedClearSyntheticDataset(data.Dataset):
         trg_image = TF.resize(trg_image, (target_size, target_size))
 
         # Điều chỉnh bounding boxes nếu có
-        if len(boxes.shape) > 1 and boxes.shape[0] > 0:
-            scale_x = target_size / W
-            scale_y = target_size / H
-
-            boxes[:, 0] = boxes[:, 0] * scale_x  # x_center
-            boxes[:, 1] = boxes[:, 1] * scale_y  # y_center
-            boxes[:, 2] = boxes[:, 2] * scale_x  # width
-            boxes[:, 3] = boxes[:, 3] * scale_y  # height
+        # if len(boxes.shape) > 1 and boxes.shape[0] > 0:
+        #     scale_x = target_size / W
+        #     scale_y = target_size / H
+        #
+        #     boxes[:, 0] = boxes[:, 0] * scale_x  # x_center
+        #     boxes[:, 1] = boxes[:, 1] * scale_y  # y_center
+        #     boxes[:, 2] = boxes[:, 2] * scale_x  # width
+        #     boxes[:, 3] = boxes[:, 3] * scale_y  # height
 
         return src_image, trg_image, boxes
 

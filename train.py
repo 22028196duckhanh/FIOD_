@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, patches
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 # import wandb
@@ -41,12 +41,16 @@ def gram_matrix(feature_map):
 #     return box_loss, class_loss, dfl_loss
 
 def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
-
-    box_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in box_losses]
-    cls_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in cls_losses]
-    dfl_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in dfl_losses]
-    fsm_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in fsm_losses]
-    total_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in total_losses]
+    box_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                     box_losses]
+    cls_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                     cls_losses]
+    dfl_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                     dfl_losses]
+    fsm_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                     fsm_losses]
+    total_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                       total_losses]
 
     plt.figure(figsize=(10, 6))
     plt.plot(range(len(box_losses)), box_losses_np, label='Box Loss', color='r')
@@ -68,7 +72,6 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
     plt.close()
 
 
-
 def create_infinite_iterator(loader):
     """
     Creates an infinite iterator that automatically resets when the dataset is exhausted.
@@ -84,6 +87,59 @@ def create_infinite_iterator(loader):
         for i, batch in enumerate(loader):
             yield iteration + i, batch
         iteration += len(loader)
+
+
+def visualize_sample(dataset, index=0, target_size=640):
+    # Lấy một mẫu từ dataset
+    src_image, trg_image, boxes, labels, name = dataset[index]
+    # src_image có định dạng tensor (C, H, W) và đã ở định dạng BGR
+    # Chuyển đổi từ tensor sang numpy, chuyển từ CHW sang HWC
+    img = src_image.numpy().transpose((1, 2, 0))
+
+    # Chuyển từ BGR sang RGB để hiển thị đúng màu
+    img = img[:, :, ::-1]
+
+    # Nếu các bounding box được lưu theo định dạng normalized (0-1), chuyển về pixel
+    # Giả sử boxes có dạng (num_boxes, 4) với [x_center, y_center, width, height]
+    # Bạn có thể kiểm tra giá trị: nếu các giá trị nhỏ hơn 1, coi là normalized.
+    if boxes.numel() > 0 and boxes.max() <= 1.0:
+        boxes_abs = boxes.clone()
+        boxes_abs[:, 0] = boxes[:, 0] * target_size  # x_center
+        boxes_abs[:, 1] = boxes[:, 1] * target_size  # y_center
+        boxes_abs[:, 2] = boxes[:, 2] * target_size  # width
+        boxes_abs[:, 3] = boxes[:, 3] * target_size  # height
+    else:
+        boxes_abs = boxes  # giả sử đã là pixel
+
+    # Chuyển từ format [x_center, y_center, width, height] sang [x1, y1, x2, y2]
+    boxes_xyxy = boxes_abs.clone()
+    boxes_xyxy[:, 0] = boxes_abs[:, 0] - boxes_abs[:, 2] / 2  # x1
+    boxes_xyxy[:, 1] = boxes_abs[:, 1] - boxes_abs[:, 3] / 2  # y1
+    boxes_xyxy[:, 2] = boxes_abs[:, 0] + boxes_abs[:, 2] / 2  # x2
+    boxes_xyxy[:, 3] = boxes_abs[:, 1] + boxes_abs[:, 3] / 2  # y2
+
+    # Hiển thị ảnh
+    fig, ax = plt.subplots(1, figsize=(8, 8))
+    ax.imshow(img)
+    # Vẽ bounding boxes
+    for i in range(boxes_xyxy.shape[0]):
+        x1, y1, x2, y2 = boxes_xyxy[i].tolist()
+        # Tạo một rectangle, bạn có thể thêm label vào
+        rect = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2,
+                                 edgecolor='r', facecolor='none')
+        ax.add_patch(rect)
+        # Vẽ text cho class
+        ax.text(x1, y1, f'{int(labels[i])}', color='white',
+                bbox=dict(facecolor='red', alpha=0.5))
+
+    ax.set_title(f"Image: {name}")
+    plt.axis('off')
+    os.makedirs('results', exist_ok=True)
+    save_path = os.path.join('results', 'visual.png')
+
+    # Lưu hình vào file
+    plt.savefig(save_path)
+    plt.close()
 
 
 def main():
@@ -195,7 +251,7 @@ def main():
     compute_loss = ComputeLoss(model)
 
     best_fitness, start_epoch = 0.0, 0
-    scheduler.last_epoch = start_epoch-1
+    scheduler.last_epoch = start_epoch - 1
 
     save_dir = os.path.join(os.path.dirname(__file__), 'results')
     gs = max(int(model.stride.max()), 32)
@@ -203,7 +259,7 @@ def main():
                                    640,
                                    args.batch_size,
                                    gs,
-                                   single_cls = False,
+                                   single_cls=False,
                                    hyp=hyp,
                                    cache=None,
                                    rect=True,
@@ -215,7 +271,7 @@ def main():
     model.half().float()
 
     #################
-    criterion = nn.MSELoss()
+    # criterion = nn.MSELoss()
     # optimization = optim.SGD(model.parameters(), lr=0.000001, momentum=0.9)
     # scheduler = optim.lr_scheduler.StepLR(optimization, step_size=30, gamma=0.1)
     extractor = FeatureExtractor(model, 8)
@@ -246,7 +302,6 @@ def main():
             # Lấy batch dữ liệu
             _, batch = next(cwsf_pair_loader_iter_fogpass)
             foggy_image, clear_image, box, name = batch
-
             _, batch_rf = next(rf_loader_iter_fogpass)
             rf_img, rf_name = batch_rf
 
@@ -254,7 +309,6 @@ def main():
             realfog_images = rf_img.to(device)
             foggy_images = foggy_image.to(device)
             clear_images = clear_image.to(device)
-
 
             # Get feature maps for each image type
             realfog_features = extractor.get_feature_maps(realfog_images)
@@ -346,31 +400,7 @@ def main():
 
             # Train model
             ####################
-            model.train()
-
-            optimizer.zero_grad()
-
-            # Save model
-            # if (not nosave) or (final_epoch and not evolve):  # if save
-            #     ckpt = {
-            #         'epoch': epoch,
-            #         'best_fitness': best_fitness,
-            #         'model': deepcopy(de_parallel(model)).half(),
-            #         'ema': deepcopy(ema.ema).half(),
-            #         'updates': ema.updates,
-            #         'optimizer': optimizer.state_dict(),
-            #         'opt': vars(opt),
-            #         'git': GIT_INFO,  # {remote, branch, commit} if a git repo
-            #         'date': datetime.now().isoformat()}
-            #
-            #     # Save last, best and delete
-            #     torch.save(ckpt, last)
-            #     if best_fitness == fi:
-            #         torch.save(ckpt, best)
-            #     if opt.save_period > 0 and epoch % opt.save_period == 0:
-            #         torch.save(ckpt, w / f'epoch{epoch}.pt')
-            #     del ckpt
-            #     callbacks.run('on_model_save', last, epoch, final_epoch, best_fitness, fi)
+        model.train()
 
         for param in model.parameters():
             param.requires_grad = True
@@ -379,12 +409,15 @@ def main():
         for param in FogPassFilter2.parameters():
             param.requires_grad = False
 
+        optimizer.zero_grad()
+
         _, batch = cwsf_pair_loader_iter.__next__()
         sf_image, cw_image, box, name = batch
 
         _, batch_rf = rf_loader_iter.__next__()
         rf_img, rf_name = batch_rf
-
+        sf_loss = 0
+        cw_loss = 0
         if i_iter % 3 == 0:
             # Move images to GPU
             sf_images = sf_image.to(device, non_blocking=True).float()
@@ -397,13 +430,13 @@ def main():
                 sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                 sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
 
-            sf_features_list = extractor.get_feature_maps(sf_images)
-            feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
-
-            with torch.amp.autocast(amp_device):
                 cw_predictions = model(cw_images)  # forward
                 cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
                 cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
+
+            sf_features_list = extractor.get_feature_maps(sf_images)
+            feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
+
             cw_features_list = extractor.get_feature_maps(cw_images)
             feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
 
@@ -411,7 +444,6 @@ def main():
 
             # loss_con = kl_loss(log_m(feature_sf0), m(feature_cw0))
             # loss_con.backward()
-
 
             fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
             sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
@@ -518,19 +550,22 @@ def main():
             loss_fsm += layer_fsm_loss / 4.
 
         total_loss = (
-                args.weight_box * (sf_box_loss + cw_box_loss) +
-                args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
-                args.weight_cls * (sf_class_loss + cw_class_loss) +
+            # args.weight_box * (sf_box_loss + cw_box_loss) +
+            # args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
+            # args.weight_cls * (sf_class_loss + cw_class_loss) +
+                sf_loss +
+                cw_loss +
                 args.weight_fsm * loss_fsm  # FSM Loss
             # + args.weight_con * loss_con  # Consistency Loss
         )
         total_loss = total_loss / args.iter_size
-        scaler.scale(total_loss).backward()
+        with torch.autograd.detect_anomaly():
+            scaler.scale(total_loss).backward()
         scaler.unscale_(optimizer)  # unscale gradients
+
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
         scaler.step(optimizer)  # optimizer.step
         scaler.update()
-        optimizer.zero_grad()
         if ema:
             ema.update(model)
 
@@ -546,26 +581,26 @@ def main():
 
         # optimizer.step()
 
-        box_losses.append(args.weight_box * (sf_box_loss + cw_box_loss))
-        dfl_losses.append(args.weight_dfl * (sf_dfl_loss + cw_dfl_loss))
-        cls_losses.append(args.weight_cls * (sf_class_loss + cw_class_loss))
-        fsm_losses.append(args.weight_fsm * loss_fsm)
-        total_losses.append(total_loss)
+            box_losses.append(sf_box_loss + cw_box_loss)
+            dfl_losses.append(sf_dfl_loss + cw_dfl_loss)
+            cls_losses.append(sf_class_loss + cw_class_loss)
+            fsm_losses.append(args.weight_fsm * loss_fsm)
+            total_losses.append(total_loss)
 
         if (sf_box_loss + cw_box_loss) != 0:
-            box_loss = args.weight_box * (sf_box_loss + cw_box_loss)
+            box_loss = sf_box_loss + cw_box_loss
             loss_box_value += box_loss.data.cpu().numpy() / args.iter_size
         if (sf_class_loss + cw_class_loss) != 0:
-            class_loss = args.weight_cls * (sf_class_loss + cw_class_loss)
+            class_loss = sf_class_loss + cw_class_loss
             loss_cls_value += class_loss.data.cpu().numpy() / args.iter_size
         # if (sf_obj_loss + cw_obj_loss) != 0:
         #     loss_obj = args.weight_obj * (sf_obj_loss + cw_obj_loss)
         #     loss_obj_value += loss_obj.data.cpu().numpy() / args.iter_size
         if (sf_dfl_loss + cw_dfl_loss) != 0:
-            loss_dfl = args.weight_obj * (sf_dfl_loss + cw_dfl_loss)
+            loss_dfl = sf_dfl_loss + cw_dfl_loss
             loss_dfl_value += loss_dfl.data.cpu().numpy() / args.iter_size
         if loss_fsm != 0:
-            loss_fsm = loss_fsm* args.weight_fsm
+            loss_fsm = loss_fsm * args.weight_fsm
             loss_fsm_value += loss_fsm.data.cpu().numpy() / args.iter_size
         # if loss_con != 0:
         #     loss_con_value += loss_con.data.cpu().numpy() / args.iter_size
@@ -582,7 +617,7 @@ def main():
         print(
             f"Step {i_iter + 1}:total_loss: {total_loss}, box_loss: {loss_box_value},dfl loss: {loss_dfl_value}, cls_loss: {loss_cls_value}, fsm_loss: {loss_fsm_value},"
             # f", consistency_loss: {args.weight_con * loss_con_value}"
-            )
+        )
 
         scheduler.step()
 
@@ -610,6 +645,7 @@ def main():
     # wandb.finish()
 
     return
+
 
 if __name__ == '__main__':
     main()

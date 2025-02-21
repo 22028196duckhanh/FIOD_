@@ -7,7 +7,7 @@ ITER_SIZE = 1
 NUM_WORKERS = 0
 INPUT_SIZE = '2048,1024'
 INPUT_SIZE_RF = '1280,960'
-NUM_STEPS = 15
+NUM_STEPS = 180
 NUM_STEPS_STOP = 60000  # early stopping
 RANDOM_SEED = 1234
 SF_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000_foggy"
@@ -17,11 +17,11 @@ RF_LIST_FILE = "E:\\yolov9_modify_architecture\\Foggy_Driving\\Foggy_Driving\\li
 
 SET = 'train'
 
-WEIGHT_BOX = 1
+WEIGHT_BOX = 7.5
 WEIGHT_CLS = 1
 WEIGHT_OBJ = 1
 WEIGHT_DFL = 1.5
-WEIGHT_FSM = 1
+WEIGHT_FSM = 1000
 WEIGHT_CON = 0.1
 
 def get_arguments():

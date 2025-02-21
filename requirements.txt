@@ -1,6 +1,7 @@
 numpy
 torch==2.6.0
-torchvision
+torchvision==0.21.0
+torchaudio==
 pillow
 matplotlib
 tqdm

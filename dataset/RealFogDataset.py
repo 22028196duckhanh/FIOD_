@@ -50,8 +50,8 @@ class RealFogDataset(data.Dataset):
 
         fog_image = fog_image[:, :, ::-1].copy()  # RGB to BGR
 
-        mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
-        fog_image -= mean
+        # mean = np.array([104.00698793, 116.66876762, 122.67891434], dtype=np.float32) / 255.0
+        # fog_image -= mean
 
         fog_image = fog_image.transpose((2, 0, 1))
 
