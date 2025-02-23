@@ -8,7 +8,8 @@ from matplotlib import pyplot as plt
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 import sys
-path = r"D:\UNI\LAB\FIOD_\yolov9_main"
+# path = r"D:\UNI\LAB\FIOD_\yolov9_main"
+path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9_main"
 sys.path.insert(0, path)
 # import wandb
 from tqdm import tqdm
@@ -27,6 +28,8 @@ from models_.fogpassfilter import FogPassFilter_conv1, FogPassFilter_res1, FogPa
 from models.yolo import Model
 from train import parse_opt
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"device: {device}")
 
 
 def gram_matrix(feature_map):
@@ -56,7 +59,7 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, tota
     plt.plot(range(len(fsm_losses)), fsm_losses_np, label='FSM Loss', color='y')
     plt.plot(range(len(con_losses)), con_losses_np, label='Con Loss', color='m')
     plt.plot(range(len(total_losses)), total_losses_np, label='Total Loss', color='k')
-    plt.xlabel('Iterations')
+    plt.xlabel('Epochs')
     plt.ylabel('Loss')
     plt.legend()
     plt.grid(True)
@@ -72,9 +75,10 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, tota
 def intersect_dicts(da, db, exclude=()):
     return {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
 
-def get_model(checkpoint_path = r"D:\UNI\LAB\FIOD_\yolov9-s.pt"):
+# def get_model(checkpoint_path = r"D:\UNI\LAB\FIOD_\yolov9-s.pt"):
+def get_model(checkpoint_path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9-s.pt"):
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    model = Model(checkpoint['model'].yaml).to("cpu")
+    model = Model(checkpoint['model'].yaml).to(device)
     csd = checkpoint['model'].float().state_dict()
     csd = intersect_dicts(csd, model.state_dict(), exclude=())
     model.load_state_dict(csd, strict=False)
@@ -153,8 +157,6 @@ def visualize_sample(dataset, index=0, target_size=640):
 def main():
     # wandb.init(mode="disabled")
     args = get_arguments()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device: {device}")
     lr_fpf1 = 1e-3  # lr của fogpass filter
     lr_fpf2 = 1e-3
 
@@ -265,7 +267,7 @@ def main():
 
     save_dir = os.path.join(os.path.dirname(__file__), 'results')
     gs = max(int(model.stride.max()), 32)
-    val_loader = create_dataloader(r"E:\yolov9_modify_architecture\cityscape_yolo_format_subset_2000_foggy\val",
+    val_loader = create_dataloader(r"/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy/val",
                                    640,
                                    args.batch_size,
                                    gs,
@@ -278,7 +280,7 @@ def main():
                                    pad=0.5,
                                    prefix=colorstr('val: '))[0]
 
-    model.half().float()
+    # model.half().float()
 
     #################
     # criterion = nn.MSELoss()
@@ -304,6 +306,9 @@ def main():
         loss_fsm_value = 0
         loss_con_value = 0
         num_batches = len(cwsf_pair_loader)
+        num_batches_cw_sf = 0
+
+        print("Number of batches: ", num_batches)
 
         # Progress bar for the current epoch
         pbar = tqdm(enumerate(cwsf_pair_loader), total=len(cwsf_pair_loader), desc=f"Epoch {epoch + 1}/{args.num_epochs}")
@@ -431,13 +436,14 @@ def main():
             con_loss = 0
 
             if batch_idx % 3 == 0:
+                num_batches_cw_sf += 1
                 # SF-CW training
                 sf_images = foggy_image.to(device, non_blocking=True).float()
                 cw_images = clear_image.to(device, non_blocking=True).float()
                 boxes = box.to(device)
 
                 # Get predictions and features
-                with torch.cuda.amp.autocast(amp_device):
+                with torch.amp.autocast(amp_device):
                     sf_predictions = model(sf_images)  # forward
                     sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                     sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -470,7 +476,7 @@ def main():
                 rf_images = rf_img.to(device, non_blocking=True).float()
                 boxes = box.to(device)
 
-                with torch.cuda.amp.autocast(amp_device):
+                with torch.amp.autocast(amp_device):
                     sf_predictions = model(sf_images)  # forward
                     sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                     sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -491,7 +497,7 @@ def main():
                 rf_images = rf_img.to(device, non_blocking=True).float()
                 boxes = box.to(device)
 
-                with torch.cuda.amp.autocast(amp_device):
+                with torch.amp.autocast(amp_device):
                     cw_predictions = model(cw_images)
                     cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
                     cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
@@ -606,7 +612,7 @@ def main():
                 loss_fsm_value += loss_fsm.data.cpu().numpy() / num_batches
             if con_loss != 0:
                 # con_loss = con_loss * args.weight_con
-                loss_con_value += con_loss.data.cpu().numpy() / num_batches
+                loss_con_value += con_loss.data.cpu().numpy()
 
             # wandb.log({
             #     "box_loss": loss_box_value,
@@ -620,24 +626,26 @@ def main():
             scheduler.step()
 
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
-            final_epoch = (batch_idx + 1 == args.num_steps) or stopper.possible_stop
-            if final_epoch:  # Calculate mAP
-                print("val")
-                results, maps, _ = validate.run(batch_size=args.batch_size,
-                                                half=amp,
-                                                model=ema.ema,
-                                                single_cls=False,
-                                                dataloader=val_loader,
-                                                save_dir=save_dir,
-                                                plots=False,
-                                                compute_loss=compute_loss)
-                print("eval")
+            # final_epoch = (batch_idx + 1 == args.num_steps) or stopper.possible_stop
+            # if final_epoch:  # Calculate mAP
+            #     print("val")
+            #     results, maps, _ = validate.run(batch_size=args.batch_size,
+            #                                     half=amp,
+            #                                     model=ema.ema,
+            #                                     single_cls=False,
+            #                                     dataloader=val_loader,
+            #                                     save_dir=save_dir,
+            #                                     plots=False,
+            #                                     compute_loss=compute_loss)
+            #     print("eval")
 
-            # Update best mAP
-            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
-            if fi > best_fitness:
-                best_fitness = fi
+            # # Update best mAP
+            # fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            # if fi > best_fitness:
+            #     best_fitness = fi
 
+        print("Number of batches of pair CW-SF: ", num_batches_cw_sf)
+        loss_con_value /= num_batches_cw_sf
 
         box_losses.append(loss_box_value)
         dfl_losses.append(loss_dfl_value)
@@ -656,37 +664,37 @@ def main():
             f"{colorstr('bright_magenta', 'con_loss')}: {loss_con_value:.4f}"
         )
 
-        # End of epoch validation
-        print("\nRunning validation...")
-        results, maps, _ = validate.run(
-            batch_size=args.batch_size,
-            half=amp,
-            model=ema.ema,
-            single_cls=False,
-            dataloader=val_loader,
-            save_dir=save_dir,
-            plots=False,
-            compute_loss=compute_loss
-        )
+        # # End of epoch validation
+        # print("\nRunning validation...")
+        # results, maps, _ = validate.run(
+        #     batch_size=args.batch_size,
+        #     half=amp,
+        #     model=ema.ema,
+        #     single_cls=False,
+        #     dataloader=val_loader,
+        #     save_dir=save_dir,
+        #     plots=False,
+        #     compute_loss=compute_loss
+        # )
 
-        # Update best mAP
-        fi = fitness(np.array(results).reshape(1, -1))
-        if fi > best_fitness:
-            best_fitness = fi
-            # Save best model
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'best_fitness': best_fitness,
-            }, os.path.join(save_dir, 'best.pt'))
+        # # Update best mAP
+        # fi = fitness(np.array(results).reshape(1, -1))
+        # if fi > best_fitness:
+        #     best_fitness = fi
+        #     # Save best model
+        #     torch.save({
+        #         'epoch': epoch,
+        #         'model_state_dict': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'best_fitness': best_fitness,
+        #     }, os.path.join(save_dir, 'best.pt'))
 
         # Learning rate scheduling
         scheduler.step()
 
-        # Early stopping check
-        if stopper(epoch=epoch, fitness=fi):
-            break
+        # # Early stopping check
+        # if stopper(epoch=epoch, fitness=fi):
+        #     break
 
     plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, total_losses)
     print("end")

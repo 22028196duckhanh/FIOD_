@@ -2,20 +2,25 @@ import argparse
 
 IMG_MEAN = (104.00698793, 116.66876762, 122.67891434)
 BETA = 0.005
-BATCH_SIZE = 2
+BATCH_SIZE = 4
 ITER_SIZE = 1
 NUM_WORKERS = 0
 INPUT_SIZE = '2048,1024'
 INPUT_SIZE_RF = '1280,960'
-NUM_EPOCHS = 1
+NUM_EPOCHS = 10
 NUM_STEPS = 1000000
 NUM_STEPS_STOP = 60000  # early stopping
 RANDOM_SEED = 1234
 
-SF_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000_foggy"
-CW_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000"
-RF_ROOT = "E:\\yolov9_modify_architecture\\Foggy_Driving/Foggy_Driving"
-RF_LIST_FILE = "E:\\yolov9_modify_architecture\\Foggy_Driving\\Foggy_Driving\\lists_file_names\\leftImg8bit_testall_filenames.txt"
+SF_ROOT = r"/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy"
+CW_ROOT = r"/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000"
+RF_ROOT = r"/content/yolo_data/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving"
+RF_LIST_FILE = r"/content/yolo_data/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving/lists_file_names/leftImg8bit_testall_filenames.txt"
+
+# SF_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000_foggy"
+# CW_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000"
+# RF_ROOT = "E:\\yolov9_modify_architecture\\Foggy_Driving/Foggy_Driving"
+# RF_LIST_FILE = "E:\\yolov9_modify_architecture\\Foggy_Driving\\Foggy_Driving\\lists_file_names\\leftImg8bit_testall_filenames.txt"
 
 # SF_ROOT = r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\cityscape_yolo_format_subset_2000_foggy"
 # CW_ROOT = r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\cityscape_yolo_format_subset_2000"
