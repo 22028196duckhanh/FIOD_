@@ -229,7 +229,7 @@ def main():
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     amp = check_amp(model)
     amp_device = "cuda" if amp else "cpu"
-    scaler = torch.amp.GradScaler(enabled=amp)
+    scaler = torch.cuda.amp.GradScaler(enabled=amp)
     optimizer = smart_optimizer(model, 'Adam', hyp['lr0'], hyp['momentum'], hyp['weight_decay'])
     stopper, stop = EarlyStopping(patience=opt.patience), False
     last_opt_step = -1
@@ -255,7 +255,7 @@ def main():
 
     save_dir = os.path.join(os.path.dirname(__file__), 'results')
     gs = max(int(model.stride.max()), 32)
-    val_loader = create_dataloader("E:\\yolov9_modify_architecture\\val_merge\\images",
+    val_loader = create_dataloader(r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\Foggy_Driving\Processed_foggy_driving\images",
                                    640,
                                    args.batch_size,
                                    gs,
@@ -425,7 +425,7 @@ def main():
             boxes = box.to(device)
 
             # Get predictions and features
-            with torch.amp.autocast(amp_device):
+            with torch.cuda.amp.autocast(amp_device):
                 sf_predictions = model(sf_images)  # forward
                 sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                 sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -455,7 +455,7 @@ def main():
             rf_images = rf_img.to(device, non_blocking=True).float()
             boxes = box.to(device)
 
-            with torch.amp.autocast(amp_device):
+            with torch.cuda.amp.autocast(amp_device):
                 sf_predictions = model(sf_images)  # forward
                 sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                 sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -478,7 +478,7 @@ def main():
             rf_images = rf_img.to(device, non_blocking=True).float()
             boxes = box.to(device)
 
-            with torch.amp.autocast(amp_device):
+            with torch.cuda.amp.autocast(amp_device):
                 cw_predictions = model(cw_images)
                 cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
                 cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
