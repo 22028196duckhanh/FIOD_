@@ -294,14 +294,21 @@ def main():
     total_losses = []
 
     # wandb.init(project="yolov9_training", name="experiment_1")
-    # for i_iter in tqdm(range(0, args.num_steps)):
-    for i_iter in range(0, args.num_steps):
+    for epoch in range(args.num_epochs):
+        print(f"\nStarting epoch {epoch + 1}/{args.num_epochs}")
+        model.train()
+
         loss_box_value = 0
         loss_cls_value = 0
         loss_dfl_value = 0
         loss_fsm_value = 0
         loss_con_value = 0
-        for sub_i in range(args.iter_size):
+        num_batches = len(cwsf_pair_loader)
+
+        # Progress bar for the current epoch
+        pbar = tqdm(enumerate(cwsf_pair_loader), total=len(cwsf_pair_loader), desc=f"Epoch {epoch + 1}/{args.num_epochs}")
+
+        for batch_idx, (foggy_image, clear_image, box, name) in pbar:
             # Train fog-pass filtering module
             model.eval()
             for param in model.parameters():
@@ -311,13 +318,11 @@ def main():
             for param in FogPassFilter2.parameters():
                 param.requires_grad = True
 
-            # Lấy batch dữ liệu
-            _, batch = next(cwsf_pair_loader_iter_fogpass)
-            foggy_image, clear_image, box, name = batch
-            _, batch_rf = next(rf_loader_iter_fogpass)
-            rf_img, rf_name = batch_rf
+            # Get corresponding RF batch
+            rf_batch_idx = batch_idx % len(rf_loader)
+            rf_img, rf_name = next(iter(rf_loader))
 
-            # Move images to GPU and wrap in Variable
+            # Move images to GPU
             realfog_images = rf_img.to(device)
             foggy_images = foggy_image.to(device)
             clear_images = clear_image.to(device)
@@ -365,31 +370,31 @@ def main():
                 fog_factor_cw = [0] * args.batch_size
                 fog_factor_rf = [0] * args.batch_size
 
-                for batch_idx in range(args.batch_size):
-                    sf_gram[batch_idx] = gram_matrix(sf_feature[batch_idx])
-                    cw_gram[batch_idx] = gram_matrix(cw_feature[batch_idx])
-                    rf_gram[batch_idx] = gram_matrix(rf_feature[batch_idx])
-                    vector_sf_gram[batch_idx] = sf_gram[batch_idx][
-                        torch.triu(torch.ones_like(sf_gram[batch_idx])) == 1
+                for i in range(args.batch_size):
+                    sf_gram[i] = gram_matrix(sf_feature[i])
+                    cw_gram[i] = gram_matrix(cw_feature[i])
+                    rf_gram[i] = gram_matrix(rf_feature[i])
+                    vector_sf_gram[i] = sf_gram[i][
+                        torch.triu(torch.ones_like(sf_gram[i])) == 1
                         ].detach().clone().requires_grad_()
 
-                    vector_cw_gram[batch_idx] = cw_gram[batch_idx][
-                        torch.triu(torch.ones_like(cw_gram[batch_idx])) == 1
+                    vector_cw_gram[i] = cw_gram[i][
+                        torch.triu(torch.ones_like(cw_gram[i])) == 1
                         ].detach().clone().requires_grad_()
 
-                    vector_rf_gram[batch_idx] = rf_gram[batch_idx][
-                        torch.triu(torch.ones_like(rf_gram[batch_idx])) == 1
+                    vector_rf_gram[i] = rf_gram[i][
+                        torch.triu(torch.ones_like(rf_gram[i])) == 1
                         ].detach().clone().requires_grad_()
 
-                    fog_factor_sf[batch_idx] = fogpassfilter(vector_sf_gram[batch_idx])
-                    fog_factor_cw[batch_idx] = fogpassfilter(vector_cw_gram[batch_idx])
-                    fog_factor_rf[batch_idx] = fogpassfilter(vector_rf_gram[batch_idx])
+                    fog_factor_sf[i] = fogpassfilter(vector_sf_gram[i])
+                    fog_factor_cw[i] = fogpassfilter(vector_cw_gram[i])
+                    fog_factor_rf[i] = fogpassfilter(vector_rf_gram[i])
 
                 embeddings_list = []
-                for batch_idx in range(args.batch_size):
-                    embeddings_list.append(fog_factor_sf[batch_idx].unsqueeze(0))
-                    embeddings_list.append(fog_factor_cw[batch_idx].unsqueeze(0))
-                    embeddings_list.append(fog_factor_rf[batch_idx].unsqueeze(0))
+                for i in range(args.batch_size):
+                    embeddings_list.append(fog_factor_sf[i].unsqueeze(0))
+                    embeddings_list.append(fog_factor_cw[i].unsqueeze(0))
+                    embeddings_list.append(fog_factor_rf[i].unsqueeze(0))
                 fog_factor_embeddings = torch.cat(embeddings_list, dim=0)
 
                 fog_factor_embeddings_norm = torch.norm(fog_factor_embeddings, p=2, dim=1).detach()
@@ -404,228 +409,245 @@ def main():
                 # wandb.log({f'layer{idx}/fpf loss': fog_pass_filter_loss}, step=i_iter)
                 # wandb.log({f'layer{idx}/total fpf loss': total_fpf_loss}, step=i_iter)
 
-            print(f'total_fpf_loss: {total_fpf_loss}')
+            # print(f'total_fpf_loss: {total_fpf_loss}')
             with torch.autograd.detect_anomaly():
                 total_fpf_loss.backward()
             FogPassFilter1_optimizer.step()
             FogPassFilter2_optimizer.step()
 
-        # Train model
-        ####################
-        model.train()
+            ###### Train model
+            model.train()
+            for param in model.parameters():
+                param.requires_grad = True
+            for param in FogPassFilter1.parameters():
+                param.requires_grad = False
+            for param in FogPassFilter2.parameters():
+                param.requires_grad = False
 
-        for param in model.parameters():
-            param.requires_grad = True
-        for param in FogPassFilter1.parameters():
-            param.requires_grad = False
-        for param in FogPassFilter2.parameters():
-            param.requires_grad = False
+            optimizer.zero_grad()
 
-        optimizer.zero_grad()
+            sf_loss = 0
+            cw_loss = 0
+            con_loss = 0
 
-        _, batch = cwsf_pair_loader_iter.__next__()
-        sf_image, cw_image, box, name = batch
+            if batch_idx % 3 == 0:
+                # SF-CW training
+                sf_images = foggy_image.to(device, non_blocking=True).float()
+                cw_images = clear_image.to(device, non_blocking=True).float()
+                boxes = box.to(device)
 
-        _, batch_rf = rf_loader_iter.__next__()
-        rf_img, rf_name = batch_rf
-        sf_loss = 0
-        cw_loss = 0
-        con_loss = 0
-        if i_iter % 3 == 0:
-            # Move images to GPU
-            sf_images = sf_image.to(device, non_blocking=True).float()
-            cw_images = cw_image.to(device, non_blocking=True).float()
-            boxes = box.to(device)
+                # Get predictions and features
+                with torch.cuda.amp.autocast(amp_device):
+                    sf_predictions = model(sf_images)  # forward
+                    sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
+                    sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
 
-            # Get predictions and features
-            with torch.cuda.amp.autocast(amp_device):
-                sf_predictions = model(sf_images)  # forward
-                sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
-                sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
+                    cw_predictions = model(cw_images)  # forward
+                    cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
+                    cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
 
-                cw_predictions = model(cw_images)  # forward
-                cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
-                cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
+                sf_features_list = extractor.get_feature_maps(sf_images)
+                feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
 
-            sf_features_list = extractor.get_feature_maps(sf_images)
-            feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
+                cw_features_list = extractor.get_feature_maps(cw_images)
+                feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
 
-            cw_features_list = extractor.get_feature_maps(cw_images)
-            feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
+                # CONSISTENCY LOSS
+                pl = len(sf_predictions[1]) # prediction layers
+                for i in range(len(sf_predictions[1])):
+                    con_loss += mse_loss(sf_predictions[1][i], cw_predictions[1][i])
+                    # con_loss = kl_loss(log_m(sf_predictions[1][i]), m(cw_predictions[1][i]))
 
-            # CONSISTENCY LOSS
-            pl = len(sf_predictions[1]) # prediction layers
-            for i in range(len(sf_predictions[1])):
-                con_loss += mse_loss(sf_predictions[1][i], cw_predictions[1][i])
-                # con_loss = kl_loss(log_m(sf_predictions[1][i]), m(cw_predictions[1][i]))
+                con_loss /= pl
 
-            con_loss /= pl
+                fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
+                sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
+                cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
 
-            fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
-            sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
-            cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
+            elif batch_idx % 3 == 1:
+                # SF-RF training
+                sf_images = foggy_image.to(device, non_blocking=True).float()
+                rf_images = rf_img.to(device, non_blocking=True).float()
+                boxes = box.to(device)
 
-        elif i_iter % 3 == 1:
+                with torch.cuda.amp.autocast(amp_device):
+                    sf_predictions = model(sf_images)  # forward
+                    sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
+                    sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
+                sf_features_list = extractor.get_feature_maps(sf_images)
+                feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
 
-            sf_images = sf_image.to(device, non_blocking=True).float()
-            rf_images = rf_img.to(device, non_blocking=True).float()
-            boxes = box.to(device)
+                rf_predictions = model(rf_images)
+                rf_features_list = extractor.get_feature_maps(rf_images)
+                feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
 
-            with torch.cuda.amp.autocast(amp_device):
-                sf_predictions = model(sf_images)  # forward
-                sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
-                sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
-            sf_features_list = extractor.get_feature_maps(sf_images)
-            feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
+                rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
+                sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
+                fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
 
-            rf_predictions = model(rf_images)
-            rf_features_list = extractor.get_feature_maps(rf_images)
-            feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
+            else:  # batch_idx % 3 == 2
+                # CW-RF training
+                cw_images = clear_image.to(device, non_blocking=True).float()
+                rf_images = rf_img.to(device, non_blocking=True).float()
+                boxes = box.to(device)
 
-            rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
-            sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
-            fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
+                with torch.cuda.amp.autocast(amp_device):
+                    cw_predictions = model(cw_images)
+                    cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
+                    cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
+                cw_features_list = extractor.get_feature_maps(cw_images)
+                feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
 
-        else:  # i_iter % 3 == 2
+                rf_predictions = model(rf_images)
+                rf_features_list = extractor.get_feature_maps(rf_images)
+                feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
 
-            cw_images = cw_image.to(device, non_blocking=True).float()
-            rf_images = rf_img.to(device, non_blocking=True).float()
-            boxes = box.to(device)
+                rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
+                cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
+                fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
 
-            with torch.cuda.amp.autocast(amp_device):
-                cw_predictions = model(cw_images)
-                cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
-                cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
-            cw_features_list = extractor.get_feature_maps(cw_images)
-            feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
+            loss_fsm = 0
+            fog_pass_filter_loss = 0
 
-            rf_predictions = model(rf_images)
-            rf_features_list = extractor.get_feature_maps(rf_images)
-            feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
+            for idx, layer in enumerate(fsm_weights):
+                a_feature = None
+                b_feature = None
+                # fog pass filter loss between different fog conditions a and b
+                if batch_idx % 3 == 0:
+                    a_feature = cw_features[layer]
+                    b_feature = sf_features[layer]
+                if batch_idx % 3 == 1:
+                    a_feature = rf_features[layer]
+                    b_feature = sf_features[layer]
+                if batch_idx % 3 == 2:
+                    a_feature = rf_features[layer]
+                    b_feature = cw_features[layer]
 
-            rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
-            cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
-            fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
+                layer_fsm_loss = 0
+                na, da, ha, wa = a_feature.size()
+                nb, db, hb, wb = b_feature.size()
 
-        loss_fsm = 0
-        fog_pass_filter_loss = 0
+                fogpassfilter = None
+                fogpassfilter_optimizer = None
 
-        for idx, layer in enumerate(fsm_weights):
-            a_feature = None
-            b_feature = None
-            # fog pass filter loss between different fog conditions a and b
-            if i_iter % 3 == 0:
-                a_feature = cw_features[layer]
-                b_feature = sf_features[layer]
-            if i_iter % 3 == 1:
-                a_feature = rf_features[layer]
-                b_feature = sf_features[layer]
-            if i_iter % 3 == 2:
-                a_feature = rf_features[layer]
-                b_feature = cw_features[layer]
+                if idx == 0:
+                    fogpassfilter = FogPassFilter1
+                    fogpassfilter_optimizer = FogPassFilter1_optimizer
+                elif idx == 1:
+                    fogpassfilter = FogPassFilter2
+                    fogpassfilter_optimizer = FogPassFilter2_optimizer
 
-            layer_fsm_loss = 0
-            na, da, ha, wa = a_feature.size()
-            nb, db, hb, wb = b_feature.size()
+                fogpassfilter.eval()
 
-            fogpassfilter = None
-            fogpassfilter_optimizer = None
+                for i in range(args.batch_size):
+                    b_gram = gram_matrix(b_feature[i])
+                    a_gram = gram_matrix(a_feature[i])
 
-            if idx == 0:
-                fogpassfilter = FogPassFilter1
-                fogpassfilter_optimizer = FogPassFilter1_optimizer
-            elif idx == 1:
-                fogpassfilter = FogPassFilter2
-                fogpassfilter_optimizer = FogPassFilter2_optimizer
+                    if batch_idx % 3 == 1 or batch_idx % 3 == 2:
+                        a_gram = a_gram * (hb * wb) / (ha * wa)
 
-            fogpassfilter.eval()
+                    vector_b_gram = b_gram[torch.triu(
+                        torch.ones(b_gram.size()[0], b_gram.size()[1])).requires_grad_() == 1].requires_grad_()
+                    vector_a_gram = a_gram[torch.triu(
+                        torch.ones(a_gram.size()[0], a_gram.size()[1])).requires_grad_() == 1].requires_grad_()
 
-            for batch_idx in range(args.batch_size):
-                b_gram = gram_matrix(b_feature[batch_idx])
-                a_gram = gram_matrix(a_feature[batch_idx])
+                    fog_factor_b = fogpassfilter(vector_b_gram)
+                    fog_factor_a = fogpassfilter(vector_a_gram)
+                    half = int(fog_factor_b.shape[0] / 2)
 
-                if i_iter % 3 == 1 or i_iter % 3 == 2:
-                    a_gram = a_gram * (hb * wb) / (ha * wa)
+                    layer_fsm_loss += fsm_weights[layer] * torch.mean(
+                        (fog_factor_b / (hb * wb) - fog_factor_a / (ha * wa)) ** 2) / half / b_feature.size(0)
 
-                vector_b_gram = b_gram[torch.triu(
-                    torch.ones(b_gram.size()[0], b_gram.size()[1])).requires_grad_() == 1].requires_grad_()
-                vector_a_gram = a_gram[torch.triu(
-                    torch.ones(a_gram.size()[0], a_gram.size()[1])).requires_grad_() == 1].requires_grad_()
+                loss_fsm += layer_fsm_loss / 4.
 
-                fog_factor_b = fogpassfilter(vector_b_gram)
-                fog_factor_a = fogpassfilter(vector_a_gram)
-                half = int(fog_factor_b.shape[0] / 2)
+            total_loss = (
+                # args.weight_box * (sf_box_loss + cw_box_loss) +
+                # args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
+                # args.weight_cls * (sf_class_loss + cw_class_loss) +
+                sf_loss +
+                cw_loss +
+                args.weight_fsm * loss_fsm +  # FSM Loss
+                args.weight_con * con_loss  # Consistency Loss
+            )
+            total_loss = total_loss / num_batches
+            with torch.autograd.detect_anomaly():
+                scaler.scale(total_loss).backward()
+            scaler.unscale_(optimizer)  # unscale gradients
 
-                layer_fsm_loss += fsm_weights[layer] * torch.mean(
-                    (fog_factor_b / (hb * wb) - fog_factor_a / (ha * wa)) ** 2) / half / b_feature.size(0)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
+            scaler.step(optimizer)  # optimizer.step
+            scaler.update()
+            if ema:
+                ema.update(model)
 
-            loss_fsm += layer_fsm_loss / 4.
+            # if i_iter - last_opt_step >= accumulate:
+            #     scaler.unscale_(optimizer)  # unscale gradients
+            #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
+            #     scaler.step(optimizer)  # optimizer.step
+            #     scaler.update()
+            #     optimizer.zero_grad()
+            #     if ema:
+            #         ema.update(model)
+            #     last_opt_step = i_iter
 
-        total_loss = (
-            # args.weight_box * (sf_box_loss + cw_box_loss) +
-            # args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
-            # args.weight_cls * (sf_class_loss + cw_class_loss) +
-            sf_loss +
-            cw_loss +
-            args.weight_fsm * loss_fsm +  # FSM Loss
-            args.weight_con * con_loss  # Consistency Loss
-        )
-        total_loss = total_loss / args.iter_size
-        with torch.autograd.detect_anomaly():
-            scaler.scale(total_loss).backward()
-        scaler.unscale_(optimizer)  # unscale gradients
+            # optimizer.step()
 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
-        scaler.step(optimizer)  # optimizer.step
-        scaler.update()
-        if ema:
-            ema.update(model)
+            if (sf_box_loss + cw_box_loss) != 0:
+                box_loss = sf_box_loss + cw_box_loss
+                loss_box_value += box_loss.data.cpu().numpy() / num_batches
+            if (sf_class_loss + cw_class_loss) != 0:
+                class_loss = sf_class_loss + cw_class_loss
+                loss_cls_value += class_loss.data.cpu().numpy() / num_batches
+            if (sf_dfl_loss + cw_dfl_loss) != 0:
+                loss_dfl = sf_dfl_loss + cw_dfl_loss
+                loss_dfl_value += loss_dfl.data.cpu().numpy() / num_batches
+            if loss_fsm != 0:
+                # loss_fsm = loss_fsm * args.weight_fsm
+                loss_fsm_value += loss_fsm.data.cpu().numpy() / num_batches
+            if con_loss != 0:
+                # con_loss = con_loss * args.weight_con
+                loss_con_value += con_loss.data.cpu().numpy() / num_batches
 
-        # if i_iter - last_opt_step >= accumulate:
-        #     scaler.unscale_(optimizer)  # unscale gradients
-        #     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
-        #     scaler.step(optimizer)  # optimizer.step
-        #     scaler.update()
-        #     optimizer.zero_grad()
-        #     if ema:
-        #         ema.update(model)
-        #     last_opt_step = i_iter
+            # wandb.log({
+            #     "box_loss": loss_box_value,
+            #     # "class_loss": loss_cls_value,
+            #     # "dfl_loss": loss_dfl_value,
+            #     "fsm_loss": args.weight_fsm * loss_fsm_value,
+            #     "consistency_loss": args.weight_con * loss_con_value,
+            #     "total_loss": total_loss,
+            # }, step=i_iter)
 
-        # optimizer.step()
+            scheduler.step()
 
-        box_losses.append(sf_box_loss + cw_box_loss)
-        dfl_losses.append(sf_dfl_loss + cw_dfl_loss)
-        cls_losses.append(sf_class_loss + cw_class_loss)
-        fsm_losses.append(loss_fsm)
-        con_losses.append(con_loss)
+            ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
+            final_epoch = (batch_idx + 1 == args.num_steps) or stopper.possible_stop
+            if final_epoch:  # Calculate mAP
+                print("val")
+                results, maps, _ = validate.run(batch_size=args.batch_size,
+                                                half=amp,
+                                                model=ema.ema,
+                                                single_cls=False,
+                                                dataloader=val_loader,
+                                                save_dir=save_dir,
+                                                plots=False,
+                                                compute_loss=compute_loss)
+                print("eval")
+
+            # Update best mAP
+            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            if fi > best_fitness:
+                best_fitness = fi
+
+
+        box_losses.append(loss_box_value)
+        dfl_losses.append(loss_dfl_value)
+        cls_losses.append(loss_cls_value)
+        fsm_losses.append(loss_fsm_value)
+        con_losses.append(loss_con_value)
         total_losses.append(total_loss)
 
-        if (sf_box_loss + cw_box_loss) != 0:
-            box_loss = sf_box_loss + cw_box_loss
-            loss_box_value += box_loss.data.cpu().numpy() / args.iter_size
-        if (sf_class_loss + cw_class_loss) != 0:
-            class_loss = sf_class_loss + cw_class_loss
-            loss_cls_value += class_loss.data.cpu().numpy() / args.iter_size
-        if (sf_dfl_loss + cw_dfl_loss) != 0:
-            loss_dfl = sf_dfl_loss + cw_dfl_loss
-            loss_dfl_value += loss_dfl.data.cpu().numpy() / args.iter_size
-        if loss_fsm != 0:
-            # loss_fsm = loss_fsm * args.weight_fsm
-            loss_fsm_value += loss_fsm.data.cpu().numpy() / args.iter_size
-        if con_loss != 0:
-            # con_loss = con_loss * args.weight_con
-            loss_con_value += con_loss.data.cpu().numpy() / args.iter_size
-
-        # wandb.log({
-        #     "box_loss": loss_box_value,
-        #     # "class_loss": loss_cls_value,
-        #     # "dfl_loss": loss_dfl_value,
-        #     "fsm_loss": args.weight_fsm * loss_fsm_value,
-        #     "consistency_loss": args.weight_con * loss_con_value,
-        #     "total_loss": total_loss,
-        # }, step=i_iter)
-
-        print(colorstr('train: ') + f"Step {i_iter + 1}: "
+        # Print losses after each epoch
+        print(colorstr(f"Epoch {epoch + 1}: ") +
             f"{colorstr('bright_magenta', 'total_loss')}: {total_loss:.4f}, "
             f"{colorstr('bright_magenta', 'box_loss')}: {loss_box_value:.4f}, "
             f"{colorstr('bright_magenta', 'dfl_loss')}: {loss_dfl_value:.4f}, "
@@ -634,26 +656,37 @@ def main():
             f"{colorstr('bright_magenta', 'con_loss')}: {loss_con_value:.4f}"
         )
 
-        scheduler.step()
-
-        ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
-        final_epoch = (i_iter + 1 == args.num_steps) or stopper.possible_stop
-        if final_epoch:  # Calculate mAP
-            print("val")
-            results, maps, _ = validate.run(batch_size=args.batch_size,
-                                            half=amp,
-                                            model=ema.ema,
-                                            single_cls=False,
-                                            dataloader=val_loader,
-                                            save_dir=save_dir,
-                                            plots=False,
-                                            compute_loss=compute_loss)
-            print("eval")
+        # End of epoch validation
+        print("\nRunning validation...")
+        results, maps, _ = validate.run(
+            batch_size=args.batch_size,
+            half=amp,
+            model=ema.ema,
+            single_cls=False,
+            dataloader=val_loader,
+            save_dir=save_dir,
+            plots=False,
+            compute_loss=compute_loss
+        )
 
         # Update best mAP
-        fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+        fi = fitness(np.array(results).reshape(1, -1))
         if fi > best_fitness:
             best_fitness = fi
+            # Save best model
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'best_fitness': best_fitness,
+            }, os.path.join(save_dir, 'best.pt'))
+
+        # Learning rate scheduling
+        scheduler.step()
+
+        # Early stopping check
+        if stopper(epoch=epoch, fitness=fi):
+            break
 
     plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, total_losses)
     print("end")

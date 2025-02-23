@@ -7,7 +7,8 @@ ITER_SIZE = 1
 NUM_WORKERS = 0
 INPUT_SIZE = '2048,1024'
 INPUT_SIZE_RF = '1280,960'
-NUM_STEPS = 4
+NUM_EPOCHS = 1
+NUM_STEPS = 1000000
 NUM_STEPS_STOP = 60000  # early stopping
 RANDOM_SEED = 1234
 
@@ -45,6 +46,7 @@ def get_arguments():
     parser.add_argument("--num-workers", type=int, default=NUM_WORKERS, help="Number of workers")
     parser.add_argument("--input-size", type=str, default=INPUT_SIZE, help="Input image size 'width,height'")
     parser.add_argument("--input-size-rf", type=str, default=INPUT_SIZE_RF, help="Input RF image size 'width,height'")
+    parser.add_argument("--num-epochs", type=int, default=NUM_EPOCHS, help="Number of epochs")
     parser.add_argument("--num-steps", type=int, default=NUM_STEPS, help="Number of training steps")
     parser.add_argument("--num-steps-stop", type=int, default=NUM_STEPS_STOP, help="Number of steps for early stopping")
     parser.add_argument("--random-seed", type=int, default=RANDOM_SEED, help="Random seed")
