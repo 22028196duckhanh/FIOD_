@@ -26,7 +26,7 @@ class PairedClearSyntheticDataset(data.Dataset):
         self.set = set
 
         # Đọc danh sách ảnh từ thư mục images
-        self.src_image_dir = osp.join(src_root, set, 'images')
+        self.src_image_dir = osp.join(src_root, set, '')
         self.trg_image_dir = osp.join(trg_root, set, 'images')
         self.label_dir = osp.join(trg_root, set, 'labels')
 

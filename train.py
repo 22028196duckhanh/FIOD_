@@ -1,4 +1,6 @@
 import os
+import matplotlib
+from matplotlib import patches
 import numpy as np
 import torch
 import torch.nn as nn
@@ -6,7 +8,7 @@ from matplotlib import pyplot as plt
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 import sys
-path = r"D:\\Downloads\\lab\\FIOD_\\yolov9_main"
+path = r"D:\UNI\LAB\FIOD_\yolov9_main"
 sys.path.insert(0, path)
 # import wandb
 from tqdm import tqdm
@@ -33,17 +35,7 @@ def gram_matrix(feature_map):
     gram = torch.mm(features, torch.t(features))
     return gram
 
-
-# def compute_yolo_loss(model, predictions, labels):
-#     loss, loss_items = model.loss(predictions, labels)
-#
-#     box_loss = loss_items[0]  # Box loss (CIoU/GIoU)
-#     class_loss = loss_items[1]  # Class loss (Cross-entropy)
-#     dfl_loss = loss_items[2]  # Distribution Focal Loss (DFL)
-#
-#     return box_loss, class_loss, dfl_loss
-
-def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
+def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, total_losses):
     box_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
                      box_losses]
     cls_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
@@ -52,6 +44,8 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
                      dfl_losses]
     fsm_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
                      fsm_losses]
+    con_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
+                        con_losses]
     total_losses_np = [loss.detach().cpu().numpy() if isinstance(loss, torch.Tensor) else np.array(loss) for loss in
                        total_losses]
 
@@ -60,6 +54,7 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
     plt.plot(range(len(cls_losses)), cls_losses_np, label='Class Loss', color='g')
     plt.plot(range(len(dfl_losses)), dfl_losses_np, label='DFL Loss', color='b')
     plt.plot(range(len(fsm_losses)), fsm_losses_np, label='FSM Loss', color='y')
+    plt.plot(range(len(con_losses)), con_losses_np, label='Con Loss', color='m')
     plt.plot(range(len(total_losses)), total_losses_np, label='Total Loss', color='k')
     plt.xlabel('Iterations')
     plt.ylabel('Loss')
@@ -77,7 +72,7 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
 def intersect_dicts(da, db, exclude=()):
     return {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
 
-def get_model(checkpoint_path = r"D:\Downloads\lab\FIOD_\yolov9-s.pt"):
+def get_model(checkpoint_path = r"D:\UNI\LAB\FIOD_\yolov9-s.pt"):
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     model = Model(checkpoint['model'].yaml).to("cpu")
     csd = checkpoint['model'].float().state_dict()
@@ -223,6 +218,7 @@ def main():
     kl_loss = torch.nn.KLDivLoss(reduction='batchmean')
     m = nn.Softmax(dim=1)
     log_m = nn.LogSoftmax(dim=1)
+    mse_loss = nn.MSELoss(reduction='mean')
     # model = CNNModel()
 
     ################# YOLOv9
@@ -269,7 +265,7 @@ def main():
 
     save_dir = os.path.join(os.path.dirname(__file__), 'results')
     gs = max(int(model.stride.max()), 32)
-    val_loader = create_dataloader(r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\Foggy_Driving\Processed_foggy_driving\images",
+    val_loader = create_dataloader(r"E:\yolov9_modify_architecture\cityscape_yolo_format_subset_2000_foggy\val",
                                    640,
                                    args.batch_size,
                                    gs,
@@ -294,15 +290,17 @@ def main():
     cls_losses = []
     dfl_losses = []
     fsm_losses = []
+    con_losses = []
     total_losses = []
 
     # wandb.init(project="yolov9_training", name="experiment_1")
-    for i_iter in tqdm(range(0, args.num_steps)):
+    # for i_iter in tqdm(range(0, args.num_steps)):
+    for i_iter in range(0, args.num_steps):
         loss_box_value = 0
         loss_cls_value = 0
         loss_dfl_value = 0
         loss_fsm_value = 0
-        # loss_con_value = 0
+        loss_con_value = 0
         for sub_i in range(args.iter_size):
             # Train fog-pass filtering module
             model.eval()
@@ -412,8 +410,8 @@ def main():
             FogPassFilter1_optimizer.step()
             FogPassFilter2_optimizer.step()
 
-            # Train model
-            ####################
+        # Train model
+        ####################
         model.train()
 
         for param in model.parameters():
@@ -432,6 +430,7 @@ def main():
         rf_img, rf_name = batch_rf
         sf_loss = 0
         cw_loss = 0
+        con_loss = 0
         if i_iter % 3 == 0:
             # Move images to GPU
             sf_images = sf_image.to(device, non_blocking=True).float()
@@ -455,9 +454,12 @@ def main():
             feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
 
             # CONSISTENCY LOSS
+            pl = len(sf_predictions[1]) # prediction layers
+            for i in range(len(sf_predictions[1])):
+                con_loss += mse_loss(sf_predictions[1][i], cw_predictions[1][i])
+                # con_loss = kl_loss(log_m(sf_predictions[1][i]), m(cw_predictions[1][i]))
 
-            # loss_con = kl_loss(log_m(feature_sf0), m(feature_cw0))
-            # loss_con.backward()
+            con_loss /= pl
 
             fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
             sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
@@ -480,8 +482,6 @@ def main():
             rf_features_list = extractor.get_feature_maps(rf_images)
             feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
 
-            # loss_con = 0
-
             rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
             sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
             fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
@@ -502,8 +502,6 @@ def main():
             rf_predictions = model(rf_images)
             rf_features_list = extractor.get_feature_maps(rf_images)
             feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
-
-            # loss_con = 0
 
             rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
             cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
@@ -567,10 +565,10 @@ def main():
             # args.weight_box * (sf_box_loss + cw_box_loss) +
             # args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
             # args.weight_cls * (sf_class_loss + cw_class_loss) +
-                sf_loss +
-                cw_loss +
-                args.weight_fsm * loss_fsm  # FSM Loss
-            # + args.weight_con * loss_con  # Consistency Loss
+            sf_loss +
+            cw_loss +
+            args.weight_fsm * loss_fsm +  # FSM Loss
+            args.weight_con * con_loss  # Consistency Loss
         )
         total_loss = total_loss / args.iter_size
         with torch.autograd.detect_anomaly():
@@ -595,11 +593,12 @@ def main():
 
         # optimizer.step()
 
-            box_losses.append(sf_box_loss + cw_box_loss)
-            dfl_losses.append(sf_dfl_loss + cw_dfl_loss)
-            cls_losses.append(sf_class_loss + cw_class_loss)
-            fsm_losses.append(args.weight_fsm * loss_fsm)
-            total_losses.append(total_loss)
+        box_losses.append(sf_box_loss + cw_box_loss)
+        dfl_losses.append(sf_dfl_loss + cw_dfl_loss)
+        cls_losses.append(sf_class_loss + cw_class_loss)
+        fsm_losses.append(loss_fsm)
+        con_losses.append(con_loss)
+        total_losses.append(total_loss)
 
         if (sf_box_loss + cw_box_loss) != 0:
             box_loss = sf_box_loss + cw_box_loss
@@ -607,17 +606,15 @@ def main():
         if (sf_class_loss + cw_class_loss) != 0:
             class_loss = sf_class_loss + cw_class_loss
             loss_cls_value += class_loss.data.cpu().numpy() / args.iter_size
-        # if (sf_obj_loss + cw_obj_loss) != 0:
-        #     loss_obj = args.weight_obj * (sf_obj_loss + cw_obj_loss)
-        #     loss_obj_value += loss_obj.data.cpu().numpy() / args.iter_size
         if (sf_dfl_loss + cw_dfl_loss) != 0:
             loss_dfl = sf_dfl_loss + cw_dfl_loss
             loss_dfl_value += loss_dfl.data.cpu().numpy() / args.iter_size
         if loss_fsm != 0:
-            loss_fsm = loss_fsm * args.weight_fsm
+            # loss_fsm = loss_fsm * args.weight_fsm
             loss_fsm_value += loss_fsm.data.cpu().numpy() / args.iter_size
-        # if loss_con != 0:
-        #     loss_con_value += loss_con.data.cpu().numpy() / args.iter_size
+        if con_loss != 0:
+            # con_loss = con_loss * args.weight_con
+            loss_con_value += con_loss.data.cpu().numpy() / args.iter_size
 
         # wandb.log({
         #     "box_loss": loss_box_value,
@@ -628,9 +625,13 @@ def main():
         #     "total_loss": total_loss,
         # }, step=i_iter)
 
-        print(
-            f"Step {i_iter + 1}:total_loss: {total_loss}, box_loss: {loss_box_value},dfl loss: {loss_dfl_value}, cls_loss: {loss_cls_value}, fsm_loss: {loss_fsm_value},"
-            # f", consistency_loss: {args.weight_con * loss_con_value}"
+        print(colorstr('train: ') + f"Step {i_iter + 1}: "
+            f"{colorstr('bright_magenta', 'total_loss')}: {total_loss:.4f}, "
+            f"{colorstr('bright_magenta', 'box_loss')}: {loss_box_value:.4f}, "
+            f"{colorstr('bright_magenta', 'dfl_loss')}: {loss_dfl_value:.4f}, "
+            f"{colorstr('bright_magenta', 'cls_loss')}: {loss_cls_value:.4f}, "
+            f"{colorstr('bright_magenta', 'fsm_loss')}: {loss_fsm_value:.4f}, "
+            f"{colorstr('bright_magenta', 'con_loss')}: {loss_con_value:.4f}"
         )
 
         scheduler.step()
@@ -654,7 +655,7 @@ def main():
         if fi > best_fitness:
             best_fitness = fi
 
-    plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses)
+    plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, con_losses, total_losses)
     print("end")
     # wandb.finish()
 
