@@ -27,7 +27,7 @@ class PairedClearSyntheticDataset(data.Dataset):
         self.mean = mean
 
         # Đọc danh sách ảnh từ thư mục images
-        self.src_image_dir = osp.join(src_root, set, 'images')
+        self.src_image_dir = osp.join(src_root, set, '')
         self.trg_image_dir = osp.join(trg_root, set, 'images')
         self.label_dir = osp.join(trg_root, set, 'labels')
 
@@ -102,14 +102,14 @@ class PairedClearSyntheticDataset(data.Dataset):
         trg_image = TF.resize(trg_image, (target_size, target_size))
 
         # Điều chỉnh bounding boxes nếu có
-        if len(boxes.shape) > 1 and boxes.shape[0] > 0:
-            scale_x = target_size / W
-            scale_y = target_size / H
+        # if len(boxes.shape) > 1 and boxes.shape[0] > 0:
+        #     scale_x = target_size / W
+        #     scale_y = target_size / H
 
-            boxes[:, 0] = boxes[:, 0] * scale_x  # x_center
-            boxes[:, 1] = boxes[:, 1] * scale_y  # y_center
-            boxes[:, 2] = boxes[:, 2] * scale_x  # width
-            boxes[:, 3] = boxes[:, 3] * scale_y  # height
+        #     boxes[:, 0] = boxes[:, 0] * scale_x  # x_center
+        #     boxes[:, 1] = boxes[:, 1] * scale_y  # y_center
+        #     boxes[:, 2] = boxes[:, 2] * scale_x  # width
+        #     boxes[:, 3] = boxes[:, 3] * scale_y  # height
 
         return src_image, trg_image, boxes
 
@@ -126,9 +126,16 @@ class PairedClearSyntheticDataset(data.Dataset):
         # Danh sách chứa boxes đã xử lý
         all_boxes = []
 
+        # print(names)
+
         # Duyệt từng ảnh trong batch để xử lý boxes
         for batch_idx, (boxes, labels) in enumerate(zip(boxes_list, labels_list)):
             if len(boxes) > 0:
+                # print("$$$$$$$$$$$$$$")
+                # print("name: ", names[batch_idx])
+                # print(labels)
+                # print(boxes)
+
                 # Tạo tensor batch index có cùng số lượng boxes
                 batch_indices = torch.full((len(boxes), 1), batch_idx, dtype=torch.float32)
                 labels = labels.unsqueeze(1)  # Chuyển labels thành shape (num_bb, 1)

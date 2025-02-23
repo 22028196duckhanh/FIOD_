@@ -222,6 +222,7 @@ class DualDDetect(nn.Module):
         self.dfl2 = DFL(self.reg_max)
 
     def forward(self, x):
+        print("HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH")
         shape = x[0].shape  # BCHW
         d1 = []
         d2 = []
@@ -229,6 +230,8 @@ class DualDDetect(nn.Module):
             d1.append(torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1))
             d2.append(torch.cat((self.cv4[i](x[self.nl+i]), self.cv5[i](x[self.nl+i])), 1))
         if self.training:
+            print("d1 len ", len(d1)) #3 detect layer
+            print("d2 len ", len(d2)) #3
             return [d1, d2]
         elif self.dynamic or self.shape != shape:
             self.anchors, self.strides = (d1.transpose(0, 1) for d1 in make_anchors(d1, self.stride, 0.5))
@@ -360,17 +363,17 @@ class TripleDDetect(nn.Module):
         c6, c7 = make_divisible(max((ch[self.nl * 2] // 4, self.reg_max * 4, 16)), 4), \
                                 max((ch[self.nl * 2], min((self.nc * 2, 128))))  # channels
         self.cv2 = nn.ModuleList(
-            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3, g=4), 
+            nn.Sequential(Conv(x, c2, 3), Conv(c2, c2, 3, g=4),
                           nn.Conv2d(c2, 4 * self.reg_max, 1, groups=4)) for x in ch[:self.nl])
         self.cv3 = nn.ModuleList(
             nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch[:self.nl])
         self.cv4 = nn.ModuleList(
-            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3, g=4), 
+            nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3, g=4),
                           nn.Conv2d(c4, 4 * self.reg_max, 1, groups=4)) for x in ch[self.nl:self.nl*2])
         self.cv5 = nn.ModuleList(
             nn.Sequential(Conv(x, c5, 3), Conv(c5, c5, 3), nn.Conv2d(c5, self.nc, 1)) for x in ch[self.nl:self.nl*2])
         self.cv6 = nn.ModuleList(
-            nn.Sequential(Conv(x, c6, 3), Conv(c6, c6, 3, g=4), 
+            nn.Sequential(Conv(x, c6, 3), Conv(c6, c6, 3, g=4),
                           nn.Conv2d(c6, 4 * self.reg_max, 1, groups=4)) for x in ch[self.nl*2:self.nl*3])
         self.cv7 = nn.ModuleList(
             nn.Sequential(Conv(x, c7, 3), Conv(c7, c7, 3), nn.Conv2d(c7, self.nc, 1)) for x in ch[self.nl*2:self.nl*3])
@@ -520,7 +523,7 @@ class Panoptic(Detect):
         if self.training:
             return x, mc, p, s
         return (torch.cat([x, mc], 1), p, s) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p, s))
-    
+
 
 class BaseModel(nn.Module):
     # YOLO base model
@@ -734,7 +737,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = n_ = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in {
-            Conv, AConv, ConvTranspose, 
+            Conv, AConv, ConvTranspose,
             Bottleneck, SPP, SPPF, DWConv, BottleneckCSP, nn.ConvTranspose2d, DWConvTranspose2d, SPPCSPC, ADown,
             ELAN1, RepNCSPELAN4, SPPELAN}:
             c1, c2 = ch[f], args[0]

@@ -4,12 +4,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from yolov9_main.utils.general import xywh2xyxy
+from yolov9_main.utils.general import xywh2xyxy, yaml_load
 from yolov9_main.utils.metrics import bbox_iou
 from yolov9_main.utils.tal.anchor_generator import dist2bbox, make_anchors, bbox2dist
 from yolov9_main.utils.tal.assigner import TaskAlignedAssigner
 from yolov9_main.utils.torch_utils import de_parallel
 
+hyp = yaml_load('yolov9_main/data/hyps/hyp.scratch-high.yaml')
 
 def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#issuecomment-598028441
     # return positive, negative label smoothing BCE targets
@@ -71,7 +72,7 @@ class BboxLoss(nn.Module):
         pred_bboxes_pos = torch.masked_select(pred_bboxes, bbox_mask).view(-1, 4)
         target_bboxes_pos = torch.masked_select(target_bboxes, bbox_mask).view(-1, 4)
         bbox_weight = torch.masked_select(target_scores.sum(-1), fg_mask).unsqueeze(-1)
-        
+
         iou = bbox_iou(pred_bboxes_pos, target_bboxes_pos, xywh=False, CIoU=True)
         loss_iou = 1.0 - iou
 
@@ -102,12 +103,12 @@ class BboxLoss(nn.Module):
                                      reduction="none").view(target_left.shape) * weight_right
         return (loss_left + loss_right).mean(-1, keepdim=True)
 
-
 class ComputeLoss:
     # Compute losses
     def __init__(self, model, use_dfl=True):
         device = next(model.parameters()).device  # get model device
-        h = model.hyp  # hyperparameters
+        print("$$$$$$$$$$$", device)
+        h = hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h["cls_pw"]], device=device), reduction='none')
@@ -165,8 +166,12 @@ class ComputeLoss:
     def __call__(self, p, targets, img=None, epoch=0):
         loss = torch.zeros(3, device=self.device)  # box, cls, dfl
         feats = p[1] if isinstance(p, tuple) else p
+        # print("feats", len(feats))
+        # print("feats[0].shape", feats[0].shape)
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1)
+        # print("pred_scores.shape", pred_scores.shape)
+        # print("pred_distri.shape", pred_distri.shape)
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
 
@@ -191,6 +196,11 @@ class ComputeLoss:
             gt_bboxes,
             mask_gt)
 
+        # print("target_labels.shape : ", target_labels.shape)
+        # print("target_labels", target_labels)
+        # print("target_scores.shape : ", target_scores.shape)
+        # print("target_scores", target_scores)
+
         target_bboxes /= stride_tensor
         target_scores_sum = max(target_scores.sum(), 1)
 
@@ -199,6 +209,7 @@ class ComputeLoss:
         loss[1] = self.BCEcls(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         # bbox loss
+        # print("fg mask", fg_mask.shape)
         if fg_mask.sum():
             loss[0], loss[2], iou = self.bbox_loss(pred_distri,
                                                    pred_bboxes,
@@ -208,8 +219,12 @@ class ComputeLoss:
                                                    target_scores_sum,
                                                    fg_mask)
 
-        loss[0] *= 7.5  # box gain
-        loss[1] *= 0.5  # cls gain
+        print("box loss", loss[0])
+        print("cls loss", loss[1])
+        print("dfl loss", loss[2])
+
+        loss[0] *= 0.5  # box gain
+        loss[1] *= 7.5  # cls gain
         loss[2] *= 1.5  # dfl gain
 
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)

@@ -162,6 +162,9 @@ class TaskAlignedAssigner(nn.Module):
             fg_mask: (b, h*w)
         """
 
+        # print("gt_labels.shape: ", gt_labels.shape)
+        # print("gt_labels: ", gt_labels)
+
         # assigned target labels, (b, 1)
         batch_ind = torch.arange(end=self.bs, dtype=torch.int64, device=gt_labels.device)[..., None]
         target_gt_idx = target_gt_idx + batch_ind * self.n_max_boxes  # (b, h*w)
@@ -175,5 +178,10 @@ class TaskAlignedAssigner(nn.Module):
         target_scores = F.one_hot(target_labels, self.num_classes)  # (b, h*w, 80)
         fg_scores_mask = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores = torch.where(fg_scores_mask > 0, target_scores, 0)
+
+        if (target_scores > 0).any():
+            print("At least one element in target_scores is greater than 0")
+        else:
+            print("No element in target_scores is greater than 0")
 
         return target_labels, target_bboxes, target_scores

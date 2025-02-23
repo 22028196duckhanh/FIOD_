@@ -15,13 +15,18 @@ CW_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000"
 RF_ROOT = "E:\\yolov9_modify_architecture\\Foggy_Driving/Foggy_Driving"
 RF_LIST_FILE = "E:\\yolov9_modify_architecture\\Foggy_Driving\\Foggy_Driving\\lists_file_names\\leftImg8bit_testall_filenames.txt"
 
+# SF_ROOT = "/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy"
+# CW_ROOT = "/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000"
+# RF_ROOT = "/content/yolo_data/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving"
+# RF_LIST_FILE = "/content/yolo_data/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving/lists_file_names/leftImg8bit_testall_filenames.txt"
+
 SET = 'train'
 
 WEIGHT_BOX = 10
 WEIGHT_CLS = 0.5
 WEIGHT_DFL = 1.5
-WEIGHT_FSM = 1
-WEIGHT_CON = 0.1
+WEIGHT_FSM = 0.0000001
+WEIGHT_CON = 0.0001
 
 def get_arguments():
 

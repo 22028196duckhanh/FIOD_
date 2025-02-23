@@ -127,15 +127,14 @@ class ComputeLoss:
         ]
 
     def __call__(self, p, targets):  # predictions, targets
-        print(len(p))
-        print(len(p[0]))
         bs = p[0].shape[0]  # batch size
         print(f"batch size: {bs}")
-        loss = torch.zeros(3, device=self.device)  # [box, obj, cls] losses
+        loss = torch.zeros(3, device=self.device)  # [q] losses
         tcls, tbox, indices = self.build_targets(p, targets)  # targets
 
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
+            print("Layer predictions shape: ", pi.shape)
             b, gj, gi = indices[i]  # image, anchor, gridy, gridx
             tobj = torch.zeros((pi.shape[0], pi.shape[2], pi.shape[3]), dtype=pi.dtype, device=self.device)  # tgt obj
 
@@ -151,6 +150,7 @@ class ComputeLoss:
                 # # pwh = (0.25 + (pwh - 1.38629).sigmoid() * 3.75) * anchors[i]
                 # # pwh = (0.20 + (pwh - 1.60944).sigmoid() * 4.8) * anchors[i]
                 # # pwh = (0.16667 + (pwh - 1.79175).sigmoid() * 5.83333) * anchors[i]
+
                 # pxy = pxy.sigmoid() * 1.6 - 0.3
                 # pwh = (0.2 + pwh.sigmoid() * 4.8) * self.anchors[i]
                 # pbox = torch.cat((pxy, pwh), 1)  # predicted box
@@ -209,12 +209,15 @@ class ComputeLoss:
             ],
             device=self.device).float() * g  # offsets
 
-        for i in range(self.nl):
+        for i in range(self.nl): # for every detection head
             shape = p[i].shape
             gain[2:6] = torch.tensor(shape)[[3, 2, 3, 2]]  # xyxy gain
 
             # Match targets to anchors
             t = targets * gain  # shape(3,n,7)
+            print("targets.shape: ", targets.shape)
+            print("gain.shape: ", gain.shape)
+            print("t.shape: ", t.shape)
             if nt:
                 # Matches
                 r = t[..., 4:6].unsqueeze(1) / self.anchors[i]  # wh ratio

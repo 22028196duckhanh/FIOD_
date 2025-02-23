@@ -1,0 +1,11 @@
+sf_losses
+[array(     300.45, dtype=float32), array(     300.45, dtype=float32)]
+
+cw_losses
+[array(     300.97, dtype=float32), array(     300.97, dtype=float32)]
+
+con_losses
+[array(    0.15397)]
+
+total_losses
+[array(     601.42)]

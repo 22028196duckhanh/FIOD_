@@ -144,7 +144,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     if opt.cos_lr:
         lf = one_cycle(1, hyp['lrf'], epochs)  # cosine 1->hyp['lrf']
     elif opt.flat_cos_lr:
-        lf = one_flat_cycle(1, hyp['lrf'], epochs)  # flat cosine 1->hyp['lrf']        
+        lf = one_flat_cycle(1, hyp['lrf'], epochs)  # flat cosine 1->hyp['lrf']
     elif opt.fixed_lr:
         lf = lambda x: 1.0
     else:
