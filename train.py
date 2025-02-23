@@ -297,7 +297,6 @@ def main():
 
     # wandb.init(project="yolov9_training", name="experiment_1")
     for epoch in range(args.num_epochs):
-        print(f"\nStarting epoch {epoch + 1}/{args.num_epochs}")
         model.train()
 
         loss_box_value = 0
@@ -306,7 +305,7 @@ def main():
         loss_fsm_value = 0
         loss_con_value = 0
         num_batches = len(cwsf_pair_loader)
-        num_batches_cw_sf = 0
+        num_batches_cw_sf = 0 # number of batches of SF-CW pair (batch_idx % 3 == 0)
 
         print("Number of batches: ", num_batches)
 
@@ -314,7 +313,7 @@ def main():
         pbar = tqdm(enumerate(cwsf_pair_loader), total=len(cwsf_pair_loader), desc=f"Epoch {epoch + 1}/{args.num_epochs}")
 
         for batch_idx, (foggy_image, clear_image, box, name) in pbar:
-            # Train fog-pass filtering module
+            ###### Train fog-pass filtering module
             model.eval()
             for param in model.parameters():
                 param.requires_grad = False
@@ -420,7 +419,7 @@ def main():
             FogPassFilter1_optimizer.step()
             FogPassFilter2_optimizer.step()
 
-            ###### Train model
+            ###### Train detection model
             model.train()
             for param in model.parameters():
                 param.requires_grad = True
@@ -461,10 +460,13 @@ def main():
                 # CONSISTENCY LOSS
                 pl = len(sf_predictions[1]) # prediction layers
                 for i in range(len(sf_predictions[1])):
-                    con_loss += mse_loss(sf_predictions[1][i], cw_predictions[1][i])
-                    # con_loss = kl_loss(log_m(sf_predictions[1][i]), m(cw_predictions[1][i]))
-
+                    for j in range(args.batch_size):
+                        con_loss += mse_loss(sf_predictions[1][i][j], cw_predictions[1][i][j])
+                        # con_loss = kl_loss(log_m(sf_predictions[1][i][j]), m(cw_predictions[1][i][j]))
+                    con_loss /= args.batch_size
                 con_loss /= pl
+
+                print(colorstr('yellow', f'con_loss: {con_loss}'))
 
                 fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
                 sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
@@ -567,9 +569,6 @@ def main():
                 loss_fsm += layer_fsm_loss / 4.
 
             total_loss = (
-                # args.weight_box * (sf_box_loss + cw_box_loss) +
-                # args.weight_dfl * (sf_dfl_loss + cw_dfl_loss) +
-                # args.weight_cls * (sf_class_loss + cw_class_loss) +
                 sf_loss +
                 cw_loss +
                 args.weight_fsm * loss_fsm +  # FSM Loss
