@@ -1,27 +1,30 @@
 import os
-
 import numpy as np
 import torch
 import torch.nn as nn
-from matplotlib import pyplot as plt, patches
+from matplotlib import pyplot as plt
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
+import sys
+path = r"D:\\Downloads\\lab\\FIOD_\\yolov9_main"
+sys.path.insert(0, path)
 # import wandb
 from tqdm import tqdm
 
-import yolov9_main.val as validate
+from utils.dataloaders import create_dataloader
+from utils.general import (check_amp, colorstr, one_cycle, one_flat_cycle, yaml_load)
+from utils.loss_tal import ComputeLoss
+from utils.metrics import fitness
+from utils.torch_utils import smart_optimizer, ModelEMA, EarlyStopping
+import val as validate
 from config.config import get_arguments
 from dataset.PairedClearSyntheticDataset import PairedClearSyntheticDataset
 from dataset.RealFogDataset import RealFogDataset
-from models.feature_extractor import FeatureExtractor
-from models.fogpassfilter import FogPassFilter_conv1, FogPassFilter_res1, FogPassFilterLoss
-from yolov9_main.models.yolo import Model
-from yolov9_main.train import parse_opt
-from yolov9_main.utils.dataloaders import create_dataloader
-from yolov9_main.utils.general import (check_amp, colorstr, one_cycle, one_flat_cycle, yaml_load)
-from yolov9_main.utils.loss_tal import ComputeLoss
-from yolov9_main.utils.metrics import fitness
-from yolov9_main.utils.torch_utils import smart_optimizer, ModelEMA, EarlyStopping
+from models_.feature_extractor import FeatureExtractor
+from models_.fogpassfilter import FogPassFilter_conv1, FogPassFilter_res1, FogPassFilterLoss
+from models.yolo import Model
+from train import parse_opt
+
 
 
 def gram_matrix(feature_map):
@@ -71,6 +74,16 @@ def plot_losses(box_losses, cls_losses, dfl_losses, fsm_losses, total_losses):
     plt.savefig(save_path)
     plt.close()
 
+def intersect_dicts(da, db, exclude=()):
+    return {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
+
+def get_model(checkpoint_path = r"D:\Downloads\lab\FIOD_\yolov9-s.pt"):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    model = Model(checkpoint['model'].yaml).to("cpu")
+    csd = checkpoint['model'].float().state_dict()
+    csd = intersect_dicts(csd, model.state_dict(), exclude=())
+    model.load_state_dict(csd, strict=False)
+    return model
 
 def create_infinite_iterator(loader):
     """
@@ -220,7 +233,8 @@ def main():
     nc = 2
     names = {0: 'person', 2: 'car'}
 
-    model = Model(cfg='yolov9_main/models/detect/yolov9-s.yaml')
+    # model = Model(cfg='yolov9_main/models/detect/yolov9-s.yaml')
+    model = get_model()
 
     # checkpoint = torch.load('yolov9-s.pt', map_location='cpu')
     # model.load_state_dict(checkpoint, strict = False)
