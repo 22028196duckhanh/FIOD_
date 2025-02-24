@@ -9,7 +9,8 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 import sys
 # path = r"D:\UNI\LAB\FIOD_\yolov9_main"
-path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9_main"
+# path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9_main"
+path = r"/content/drive/MyDrive/FIOD_/yolov9_main"
 sys.path.insert(0, path)
 # import wandb
 from tqdm import tqdm
@@ -76,7 +77,7 @@ def intersect_dicts(da, db, exclude=()):
     return {k: v for k, v in da.items() if k in db and all(x not in k for x in exclude) and v.shape == db[k].shape}
 
 # def get_model(checkpoint_path = r"D:\UNI\LAB\FIOD_\yolov9-s.pt"):
-def get_model(checkpoint_path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9-s.pt"):
+def get_model(checkpoint_path = r"/content/drive/MyDrive/FIOD_/yolov9-s.pt"):
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     model = Model(checkpoint['model'].yaml).to(device)
     csd = checkpoint['model'].float().state_dict()
@@ -104,6 +105,8 @@ def create_infinite_iterator(loader):
 def visualize_sample(dataset, index=0, target_size=640):
     # Lấy một mẫu từ dataset
     src_image, trg_image, boxes, labels, name = dataset[index]
+    print(f"Name: {name}")
+    print(f"Boxes: {boxes.shape}")
     # src_image có định dạng tensor (C, H, W) và đã ở định dạng BGR
     # Chuyển đổi từ tensor sang numpy, chuyển từ CHW sang HWC
     img = src_image.numpy().transpose((1, 2, 0))
@@ -146,13 +149,12 @@ def visualize_sample(dataset, index=0, target_size=640):
 
     ax.set_title(f"Image: {name}")
     plt.axis('off')
-    os.makedirs('results', exist_ok=True)
-    save_path = os.path.join('results', 'visual.png')
+    os.makedirs('visualize', exist_ok=True)
+    save_path = os.path.join('visualize', 'visual_{:04d}.png'.format(index))
 
     # Lưu hình vào file
     plt.savefig(save_path)
     plt.close()
-
 
 def main():
     # wandb.init(mode="disabled")
@@ -267,7 +269,7 @@ def main():
 
     save_dir = os.path.join(os.path.dirname(__file__), 'results')
     gs = max(int(model.stride.max()), 32)
-    val_loader = create_dataloader(r"/content/yolo_data/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy/val",
+    val_loader = create_dataloader(r"/content/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy/val",
                                    640,
                                    args.batch_size,
                                    gs,
@@ -295,6 +297,11 @@ def main():
     con_losses = []
     total_losses = []
 
+    for i in range(1000):
+        visualize_sample(cwsf_dataset, index=i)
+
+    return
+
     # wandb.init(project="yolov9_training", name="experiment_1")
     for epoch in range(args.num_epochs):
         model.train()
@@ -308,12 +315,17 @@ def main():
         num_batches_cw_sf = 0 # number of batches of SF-CW pair (batch_idx % 3 == 0)
 
         print("Number of batches: ", num_batches)
+        print("Loader fogpass: ", len(cwsf_pair_loader_fogpass))
 
         # Progress bar for the current epoch
-        pbar = tqdm(enumerate(cwsf_pair_loader), total=len(cwsf_pair_loader), desc=f"Epoch {epoch + 1}/{args.num_epochs}")
+        pbar = tqdm(range(num_batches), desc=f"Epoch {epoch + 1}/{args.num_epochs}")
 
-        for batch_idx, (foggy_image, clear_image, box, name) in pbar:
-            ###### Train fog-pass filtering module
+        for batch_idx in pbar:
+            ##############################
+            # Fog-pass filtering training using fogpass loader
+            foggy_image, clear_image, box, name = next(iter(cwsf_pair_loader_fogpass))
+            rf_img, rf_name = next(iter(rf_loader_fogpass))
+
             model.eval()
             for param in model.parameters():
                 param.requires_grad = False
@@ -418,8 +430,13 @@ def main():
                 total_fpf_loss.backward()
             FogPassFilter1_optimizer.step()
             FogPassFilter2_optimizer.step()
+            ##############################
 
-            ###### Train detection model
+            ##############################
+            # Detection training using NORMAL loader
+            foggy_image, clear_image, box, name = next(iter(cwsf_pair_loader))
+            rf_img, rf_name = next(iter(rf_loader))
+
             model.train()
             for param in model.parameters():
                 param.requires_grad = True
@@ -442,7 +459,8 @@ def main():
                 boxes = box.to(device)
 
                 # Get predictions and features
-                with torch.amp.autocast(amp_device):
+                # with torch.amp.autocast(amp_device):
+                with torch.autocast(device_type=amp_device, dtype=torch.float16):
                     sf_predictions = model(sf_images)  # forward
                     sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                     sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -455,7 +473,7 @@ def main():
                 feature_sf0, feature_sf1 = sf_features_list[0], sf_features_list[1]
 
                 cw_features_list = extractor.get_feature_maps(cw_images)
-                feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
+                feature_cw0, feature_cw1 = cw_features_list[0], feature_cw1[1]
 
                 # CONSISTENCY LOSS
                 pl = len(sf_predictions[1]) # prediction layers
@@ -466,11 +484,40 @@ def main():
                     con_loss /= args.batch_size
                 con_loss /= pl
 
-                print(colorstr('yellow', f'con_loss: {con_loss}'))
+                if torch.isnan(sf_predictions[1][i][j]).any() or torch.isnan(cw_predictions[1][i][j]).any():
+                    print("NaN detected in predictions at layer", i, "batch index", j)
 
                 fsm_weights = {'layer0': 0.5, 'layer1': 0.5}
                 sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
                 cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
+
+                # Added visualization if class loss > 100
+                if (sf_class_loss + cw_class_loss) > 5:
+                    # Visualize the first clear image of the batch
+                    img = cw_images[0].cpu().numpy().transpose(1,2,0)
+                    img = img[..., ::-1]  # BGR to RGB conversion
+                    bb = boxes[0].cpu().numpy()
+                    if bb.max() <= 1.0:
+                        bb[:,0] = bb[:,0] * 640  # x_center
+                        bb[:,1] = bb[:,1] * 640  # y_center
+                        bb[:,2] = bb[:,2] * 640  # width
+                        bb[:,3] = bb[:,3] * 640  # height
+                    # Convert from [x_center, y_center, width, height] to [x1, y1, x2, y2]
+                    x1 = bb[:,0] - bb[:,2] / 2
+                    y1 = bb[:,1] - bb[:,3] / 2
+                    x2 = bb[:,0] + bb[:,2] / 2
+                    y2 = bb[:,1] + bb[:,3] / 2
+                    plt.figure(figsize=(8,8))
+                    plt.imshow(img)
+                    for j in range(len(x1)):
+                        rect = patches.Rectangle((x1[j], y1[j]), x2[j]-x1[j], y2[j]-y1[j],
+                                                 linewidth=2, edgecolor='r', facecolor='none')
+                        plt.gca().add_patch(rect)
+                        plt.text(x1[j], y1[j], f'{j}', color='white',
+                                 bbox=dict(facecolor='red', alpha=0.5))
+                    os.makedirs('results', exist_ok=True)
+                    plt.savefig(os.path.join('results', f'visual_batch_epoch{epoch}_batch{batch_idx}.png'))
+                    plt.close()
 
             elif batch_idx % 3 == 1:
                 # SF-RF training
@@ -478,7 +525,8 @@ def main():
                 rf_images = rf_img.to(device, non_blocking=True).float()
                 boxes = box.to(device)
 
-                with torch.amp.autocast(amp_device):
+                # with torch.amp.autocast(amp_device):
+                with torch.autocast(device_type=amp_device, dtype=torch.float16):
                     sf_predictions = model(sf_images)  # forward
                     sf_loss, sf_loss_items = compute_loss(sf_predictions[1], boxes)
                     sf_box_loss, sf_class_loss, sf_dfl_loss = sf_loss_items
@@ -487,7 +535,7 @@ def main():
 
                 rf_predictions = model(rf_images)
                 rf_features_list = extractor.get_feature_maps(rf_images)
-                feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
+                feature_rf0, feature_rf1 = rf_features_list[0], feature_rf_features_list[1]
 
                 rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
                 sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
@@ -499,16 +547,17 @@ def main():
                 rf_images = rf_img.to(device, non_blocking=True).float()
                 boxes = box.to(device)
 
-                with torch.amp.autocast(amp_device):
+                # with torch.amp.autocast(amp_device):
+                with torch.autocast(device_type=amp_device, dtype=torch.float16):
                     cw_predictions = model(cw_images)
                     cw_loss, cw_loss_items = compute_loss(cw_predictions[1], boxes)
                     cw_box_loss, cw_class_loss, cw_dfl_loss = cw_loss_items
                 cw_features_list = extractor.get_feature_maps(cw_images)
-                feature_cw0, feature_cw1 = cw_features_list[0], cw_features_list[1]
+                feature_cw0, feature_cw1 = cw_features_list[0], feature_cw1[1]
 
                 rf_predictions = model(rf_images)
                 rf_features_list = extractor.get_feature_maps(rf_images)
-                feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
+                feature_rf0, feature_rf1 = rf_features_list[0], feature_rf1[1]
 
                 rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
                 cw_features = {'layer0': feature_cw0, 'layer1': feature_cw1}
@@ -516,6 +565,14 @@ def main():
 
             loss_fsm = 0
             fog_pass_filter_loss = 0
+
+
+            print(colorstr(f"batch index {batch_idx + 1}: ") +
+                f"{colorstr('yellow', 'box_loss')}: {sf_box_loss:.4f}, "
+                f"{colorstr('yellow', 'dfl_loss')}: {cw_dfl_loss:.4f}, "
+                f"{colorstr('yellow', 'cls_loss')}: {cw_class_loss:.4f}, "
+                f"{colorstr('yellow', 'con_loss')}: {con_loss:.4f}"
+            )
 
             for idx, layer in enumerate(fsm_weights):
                 a_feature = None
@@ -578,7 +635,6 @@ def main():
             with torch.autograd.detect_anomaly():
                 scaler.scale(total_loss).backward()
             scaler.unscale_(optimizer)  # unscale gradients
-
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)  # clip gradients
             scaler.step(optimizer)  # optimizer.step
             scaler.update()
