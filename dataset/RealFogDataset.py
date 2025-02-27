@@ -1,3 +1,4 @@
+import os
 import os.path as osp
 import random
 
@@ -11,7 +12,7 @@ import torchvision.transforms.functional as TF
 from PIL import Image
 
 class RealFogDataset(data.Dataset):
-    def __init__(self, fog_root, list_file, max_iters=None):
+    def __init__(self, fog_root):
         """
         Args:
             fog_root (str): Đường dẫn đến thư mục gốc của dataset Foggy_Driving.
@@ -20,20 +21,13 @@ class RealFogDataset(data.Dataset):
             mean (tuple): Giá trị mean để chuẩn hóa ảnh.
         """
         self.fog_root = fog_root
-
-        # Đọc danh sách ảnh từ file
-        with open(list_file, 'r') as f:
-            self.img_ids = [line.strip() for line in f.readlines()]
-
-        if max_iters is not None:
-            self.img_ids = self.img_ids * int(np.ceil(float(max_iters) / len(self.img_ids)))
-
+        self.img_ids = [f for f in os.listdir(self.fog_root) if f.endswith('.jpg') or f.endswith('.png')]
         self.files = []
         for img_id in self.img_ids:
             fog_img_file = osp.join(self.fog_root, img_id)
             self.files.append({
                 "fog_img": fog_img_file,
-                "name": osp.basename(img_id)  # Lấy tên file từ đường dẫn
+                "name": img_id
             })
 
     def __len__(self):

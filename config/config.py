@@ -12,15 +12,14 @@ NUM_STEPS = 1000000
 NUM_STEPS_STOP = 60000  # early stopping
 RANDOM_SEED = 1234
 
-SF_ROOT = r"/content/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy"
-CW_ROOT = r"/content/yolov9_modify_architecture/cityscape_yolo_format_subset_2000"
-RF_ROOT = r"/content/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving"
-RF_LIST_FILE = r"/content/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving/lists_file_names/leftImg8bit_testall_filenames.txt"
+# SF_ROOT = r"/content/yolov9_modify_architecture/cityscape_yolo_format_subset_2000_foggy"
+# CW_ROOT = r"/content/yolov9_modify_architecture/cityscape_yolo_format_subset_2000"
+# RF_ROOT = r"/content/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving"
+# RF_LIST_FILE = r"/content/yolov9_modify_architecture/Foggy_Driving/Foggy_Driving/lists_file_names/leftImg8bit_testall_filenames.txt"
 
-# SF_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000_foggy"
-# CW_ROOT = "E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000"
-# RF_ROOT = "E:\\yolov9_modify_architecture\\Foggy_Driving/Foggy_Driving"
-# RF_LIST_FILE = "E:\\yolov9_modify_architecture\\Foggy_Driving\\Foggy_Driving\\lists_file_names\\leftImg8bit_testall_filenames.txt"
+SF_ROOT = r"E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000_foggy"
+CW_ROOT = r"E:\\yolov9_modify_architecture\\cityscape_yolo_format_subset_2000"
+RF_ROOT = r"E:\\yolov9_modify_architecture\\Foggy_Driving/Foggy_Driving"
 
 # SF_ROOT = r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\cityscape_yolo_format_subset_2000_foggy"
 # CW_ROOT = r"D:\Downloads\lab\dataset\data\yolov9 modify architecture\cityscape_yolo_format_subset_2000"

@@ -15,4 +15,4 @@ csd = checkpoint['model'].float().state_dict()
 csd = intersect_dicts(csd, model.state_dict(), exclude=())
 model.load_state_dict(csd, strict=False)
 
-print(model.parameters())
+print()

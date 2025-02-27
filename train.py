@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 import sys
 # path = r"D:\UNI\LAB\FIOD_\yolov9_main"
 # path = r"/content/drive/Othercomputers/laptop/FIOD_/yolov9_main"
-path = r"/content/drive/MyDrive/FIOD_/yolov9_main"
+path = r"E:\lab\FIOD_\yolov9_main"
 sys.path.insert(0, path)
 # import wandb
 from tqdm import tqdm
@@ -184,7 +184,7 @@ def main():
         collate_fn=cwsf_dataset.collate_fn
     )
 
-    rf_dataset = RealFogDataset(args.rf_root, args.rf_list_file)
+    rf_dataset = RealFogDataset(args.rf_root)
     rf_loader = DataLoader(
         rf_dataset,
         batch_size=args.batch_size,
@@ -297,10 +297,8 @@ def main():
     con_losses = []
     total_losses = []
 
-    for i in range(1000):
-        visualize_sample(cwsf_dataset, index=i)
-
-    return
+    # for i in range(1000):
+    #     visualize_sample(cwsf_dataset, index=i)
 
     # wandb.init(project="yolov9_training", name="experiment_1")
     for epoch in range(args.num_epochs):
@@ -535,7 +533,7 @@ def main():
 
                 rf_predictions = model(rf_images)
                 rf_features_list = extractor.get_feature_maps(rf_images)
-                feature_rf0, feature_rf1 = rf_features_list[0], feature_rf_features_list[1]
+                feature_rf0, feature_rf1 = rf_features_list[0], rf_features_list[1]
 
                 rf_features = {'layer0': feature_rf0, 'layer1': feature_rf1}
                 sf_features = {'layer0': feature_sf0, 'layer1': feature_sf1}
