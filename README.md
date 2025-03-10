@@ -11,6 +11,3 @@ Fog-Invariant Object Detection is a research-driven project aimed at enhancing t
 - **Domain Adaptation:** Reduces performance degradation due to fog by leveraging domain adaptation techniques.
 - **Custom Dataset Support:** Allows training with custom datasets, which have label or non-label for various applications.
 
-## License
-
-This project is licensed under the MIT License. See `LICENSE` for details.
