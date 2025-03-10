@@ -1,11 +1,16 @@
-# FIOD
-### vấn đề:
-#### hàm loss consistency (của segmentation sẽ là KL divergence giữa 2 vector xác suất của 2 ảnh trên từng pixel) => cần xem chuyển sang model OD thì như nào (model YOLOv9 đưa ra output gồm những gì, ...)
-	temp solution: 
-		+
-		+
-#### làm sao để tính ra được các loss liên quan OD (bbox, cls, dfl) với dataset như vậy (vì bình thường train với file .yaml, giờ mình lại có kiểu data_loader) => tính được loss thì cập nhật trọng số thế nào (đang muốn chỉ tương tác với backbone vì việc trích xuất feature đang lấy từ backbone)
-	temp solution: 
-		+ tạm thời đọc yolov9 xem tính loss như nào, cách train của họ (cảm giác hơi lú do code họ siêu dài)
-		+ đi tìm project tinh chỉnh yolov9 hoặc kiểu dựa dựa ý tưởng viết lại chiến lược train
-		+
+# Fog-Invariant Object Detection
+
+## Overview
+
+Fog-Invariant Object Detection is a research-driven project aimed at enhancing the performance of object detection models, specifically YOLOv9, in foggy conditions. This repository integrates additional learning modules focused on fog-related factors to improve the model's ability to detect objects in low-visibility environments.
+
+## Features
+
+- **Fog-Invariant Training:** Enhances object detection by learning fog-specific features.
+- **YOLOv9-based Model:** Utilizes YOLOv9 as the backbone for detection.
+- **Domain Adaptation:** Reduces performance degradation due to fog by leveraging domain adaptation techniques.
+- **Custom Dataset Support:** Allows training with custom datasets, which have label or non-label for various applications.
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE` for details.
